@@ -51,6 +51,7 @@ The goal is to connect core data-structure and algorithm knowledge with a small 
 Place screenshots or GIFs in `docs/` and include them in the PDF report.
 
 ![MazeVisualizer screenshot](docs/screenshot.png)
+
 ## AI Tool Declaration
 
 AI-assisted work: GitHub Copilot helped draft UI scaffolding and README text.
