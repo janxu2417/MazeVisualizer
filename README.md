@@ -1,5 +1,7 @@
 # MazeVisualizer
 
+[Chinese README](README_zh.md)
+
 ## Project Background
 
 MazeVisualizer demonstrates maze generation and pathfinding with step-by-step visualization.
@@ -7,8 +9,11 @@ The goal is to connect core data-structure and algorithm knowledge with a small 
 
 ## Key Features
 
-- DFS backtracking maze generation
-- Pathfinding visualization: BFS, Dijkstra, A*
+- Maze generation: DFS, Prim, Kruskal
+- Maze types: Corridor (DFS), Dead-end (Prim), Prim Dense, Kruskal Sparse
+- Pathfinding visualization: BFS, Dijkstra, A*, Bi-BFS, Greedy, Weighted A*
+- Start menu with Help
+- Menu options for size, complexity, maze type, and algo selection
 - Controls for pause, solver reset, algorithm switching, and new maze
 
 ## Core Algorithms
@@ -18,19 +23,29 @@ The goal is to connect core data-structure and algorithm knowledge with a small 
 - Grid uses 0 = wall, 1 = path
 - Rows and columns are adjusted to odd values so the carving step can skip
   over walls and keep a clean wall/path structure
+- Loop chance opens extra walls to create cycles
 
 ### Pathfinding
 
 - **BFS** for shortest paths on unweighted grids
 - **Dijkstra** as a weighted shortest-path baseline (uniform weights here)
 - **A*** with Manhattan distance heuristic
+- **Bi-BFS** expands from start and goal simultaneously
+- **Greedy Best-First** uses only the heuristic (fast but not optimal)
+- **Weighted A*** uses $f(n)=g(n)+W\times h(n)$ to trade accuracy for speed
 
 ## Controls
 
 - Space: pause/resume
+- H: help panel (pauses)
+- N: single step while paused (hold for continuous)
+- +/-: speed up / slow down
+- [ / ]: adjust Weighted A* W
 - R: restart solver on the same maze
 - 1/2/3: switch BFS/Dijkstra/A*
+- 4/5/6: switch Bi-BFS/Greedy/Weighted A*
 - M: generate a new maze
+- ESC: return to menu / close help panel
 
 ## Run
 
