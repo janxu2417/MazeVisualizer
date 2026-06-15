@@ -1,3 +1,5 @@
+"""Application-wide configuration constants and the :class:`AppConfig` dataclass."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,6 +9,12 @@ Color = tuple[int, int, int]
 
 @dataclass
 class AppConfig:
+    """Mutable runtime configuration for a single MazeVisualizer session.
+
+    Holds grid dimensions, cell sizes, padding, algorithm speed, maze
+    generation parameters, terrain options, font sizes, and weighted-A*
+    tuning — all adjustable via the GUI menu.
+    """
     rows: int = 31
     cols: int = 31
     cell_size: int = 19
@@ -39,6 +47,8 @@ class AppConfig:
     live_path_algorithms: tuple[str, ...] = ()
 
 
+#: Master colour palette: bg, panel, panel_alt, wall, path, terrain tiers,
+#: search layers, route, start/goal markers, grid lines, and button states.
 COLORS: dict[str, Color] = {
     "bg": (18, 20, 24),
     "panel": (28, 32, 38),
@@ -70,12 +80,14 @@ SIZE_OPTIONS = [
     ("Medium", 31, 31, 19),
     ("Large", 41, 41, 15),
 ]
+"""Grid presets: ``(label, rows, cols, cell_size)``."""
 
 COMPLEXITY_OPTIONS = [
     ("Low", 0.0),
     ("Medium", 0.08),
     ("High", 0.18),
 ]
+"""Loop-chance presets: ``(label, loop_chance)``."""
 
 MAZE_OPTIONS = [
     ("Maze: DFS Corridor", "dfs", None, None),
@@ -84,6 +96,7 @@ MAZE_OPTIONS = [
     ("Maze: Kruskal Sparse", "kruskal", 0.02, "Sparse"),
     ("Maze: Kruskal Standard", "kruskal", None, None),
 ]
+"""Maze-flavour presets: ``(label, method, override_loop_chance, custom_label)``."""
 
 ALGORITHM_NAMES = [
     "BFS",
@@ -93,10 +106,11 @@ ALGORITHM_NAMES = [
     "Greedy",
     "Weighted A*",
 ]
+"""Ordered list of supported pathfinding algorithm display names."""
 
 HELP_LINES = [
     "Space: pause / resume",
-    "H: help panel",
+    "H: help panel  /  Escape: close",
     "N: single step when paused",
     "+/-: speed up / slow down",
     "R: restart current algorithm",
@@ -105,7 +119,32 @@ HELP_LINES = [
     "T: toggle weighted terrain",
     "C: toggle comparison board",
     "M: generate new maze",
-    "Legend: visited / frontier / current / path",
-    "Terrain: x1 / x3 / x5 cost bands",
-    "ESC: close help / back to menu",
+    "Left / Right: maze history  (switches comparison board)",
+    "F5: export comparison  -->  comparison_export.json",
+    "F6: import maze  <--  maze_import.txt",
+    "Scroll wheel: scroll help panel",
+    "",
+    "---------  ----------",
+    "空格: 暂停 / 继续",
+    "H: 帮助面板  /  Escape: 返回菜单",
+    "N: 暂停时单步执行",
+    "+/-: 加速 / 减速",
+    "R: 重启当前算法",
+    "1-6: 切换算法并重新运行",
+    "[ / ]: 调整 Weighted A* 权重 W",
+    "T: 开关加权地形",
+    "C: 开关对比面板",
+    "M: 生成新迷宫 (保存历史)",
+    "方向键 左/右: 浏览迷宫历史 (对比板随地图切换)",
+    "F5: 导出对比结果  -->  comparison_export.json",
+    "F6: 导入迷宫  <--  maze_import.txt",
+    "鼠标滚轮: 滚动帮助面板",
+    "",
+    "---------  Legend /  图例  ----------",
+    "   visited    frontier    current    path    x1    x3    x5",
 ]
+"""Bilingual help-panel content: English, separator, Chinese, separator, legend.
+
+Displayed line-by-line in the scrollable help overlay rendered by
+:func:`render.draw_help_panel`.
+"""

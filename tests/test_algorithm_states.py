@@ -13,9 +13,12 @@ if str(SRC_DIR) not in sys.path:
 from algorithms import (  # noqa: E402
     RunStats,
     generate_maze,
+    solve_a_star,
     solve_bfs,
     solve_bidirectional_bfs,
     solve_dijkstra,
+    solve_greedy_best_first,
+    solve_weighted_a_star,
 )
 
 
@@ -142,3 +145,99 @@ def test_generate_maze_rejects_too_small_size(rows, cols):
 def test_generate_maze_rejects_unknown_method():
     with pytest.raises(ValueError):
         generate_maze(21, 21, method="unknown")
+
+
+def test_large_maze_is_solvable():
+    grid = generate_maze(101, 101, seed=42, method="dfs")
+    start = (1, 1)
+    goal = (len(grid) - 2, len(grid[0]) - 2)
+    grid[start[0]][start[1]] = 1
+    grid[goal[0]][goal[1]] = 1
+    states = _collect_states(solve_bfs(grid, start, goal))
+    assert states[-1]["finished"] is True
+    assert len(states[-1]["path"]) >= 2
+
+
+@pytest.mark.parametrize(
+    "solver",
+    [
+        solve_bfs,
+        solve_dijkstra,
+        solve_a_star,
+        solve_bidirectional_bfs,
+        solve_greedy_best_first,
+        solve_weighted_a_star,
+    ],
+)
+def test_minimal_3x3_maze_all_solvers(solver):
+    grid = [
+        [0, 0, 0],
+        [0, 1, 0],
+        [0, 0, 0],
+    ]
+    start = (1, 1)
+    goal = (1, 1)
+    states = _collect_states(solver(grid, start, goal))
+    last = states[-1]
+    assert last["finished"] is True
+    assert last["path"] == [start]
+    assert last["stats"].path_length == 0
+
+
+@pytest.mark.parametrize(
+    "solver",
+    [
+        solve_bfs,
+        solve_dijkstra,
+        solve_a_star,
+        solve_bidirectional_bfs,
+    ],
+)
+def test_all_solvers_handle_start_equals_goal(solver):
+    grid = generate_maze(21, 21, seed=99, method="prim")
+    start = goal = (1, 1)
+    grid[start[0]][start[1]] = 1
+    states = _collect_states(solver(grid, start, goal))
+    last = states[-1]
+    assert last["finished"] is True
+    assert last["path"] == [start]
+    assert last["stats"].path_length == 0
+
+
+@pytest.mark.parametrize("method", ["dfs", "prim", "kruskal"])
+def test_extreme_loop_chance_still_solvable(method):
+    grid = generate_maze(31, 31, seed=77, method=method, loop_chance=1.0)
+    start = (1, 1)
+    goal = (len(grid) - 2, len(grid[0]) - 2)
+    grid[start[0]][start[1]] = 1
+    grid[goal[0]][goal[1]] = 1
+    states = _collect_states(solve_bfs(grid, start, goal))
+    assert states[-1]["finished"] is True
+    assert len(states[-1]["path"]) >= 2
+
+
+def test_all_algorithms_on_same_maze_return_valid_paths():
+    grid = generate_maze(21, 21, seed=53, method="dfs")
+    start = (1, 1)
+    goal = (len(grid) - 2, len(grid[0]) - 2)
+    grid[start[0]][start[1]] = 1
+    grid[goal[0]][goal[1]] = 1
+    solvers = [
+        ("BFS", solve_bfs),
+        ("Dijkstra", solve_dijkstra),
+        ("A*", solve_a_star),
+        ("Bi-BFS", solve_bidirectional_bfs),
+        ("Greedy", solve_greedy_best_first),
+        ("Weighted A*", solve_weighted_a_star),
+    ]
+    results = {}
+    for name, solver in solvers:
+        states = _collect_states(solver(grid, start, goal))
+        path = states[-1]["path"]
+        results[name] = states[-1]["stats"]
+        assert path[0] == start
+        assert path[-1] == goal
+        for (r1, c1), (r2, c2) in zip(path, path[1:]):
+            assert abs(r1 - r2) + abs(c1 - c2) == 1
+            assert grid[r2][c2] == 1
+    assert results["BFS"].path_length == results["A*"].path_length == results["Dijkstra"].path_length

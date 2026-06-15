@@ -2,6 +2,8 @@
 
 [中文说明 / Chinese README](README_zh.md)
 
+> Repository: [https://github.com/janxu2417/MazeVisualizer](https://github.com/janxu2417/MazeVisualizer)
+
 ## Project Background
 
 MazeVisualizer is a Python + Pygame project for visualizing maze generation and pathfinding algorithms step by step.
@@ -87,7 +89,40 @@ This is a direct application of minimum-spanning-tree style thinking.
 | Greedy Best-First | heuristic only | No | often fast | `O(V)` | may find suboptimal routes |
 | Weighted A* | `f(n)=g(n)+W*h(n)` | Not always | often faster than A* | `O(V)` | trades optimality for speed |
 
-### Why Weighted Terrain Matters
+### Course Knowledge Points Coverage
+
+This project maps directly to the following topics from the Data Structures & Algorithms curriculum:
+
+| Course Topic | Where Applied | Implementation Detail |
+| :-- | :-- | :-- |
+| **DFS / Backtracking** | DFS maze generation | Explicit stack, 2-cell step carving, backtrack on dead-end |
+| **BFS (FIFO Queue)** | BFS solver, Bi-BFS | `collections.deque`, layer-by-layer expansion |
+| **Graph representation** | All solvers | Implicit grid graph → 4-directional adjacency; no explicit edge list |
+| **Priority Queue / Binary Heap** | Dijkstra, A*, Greedy, Weighted A* | `heapq` with tuples `(priority, ...)` |
+| **Shortest Path (Greedy paradigm)** | Dijkstra | Edge relaxation, non-negative weights, optimality proof |
+| **Heuristic / Informed Search** | A*, Greedy, Weighted A* | Manhattan distance `|dr|+|dc|`, admissible & consistent |
+| **Bidirectional Search** | Bi-BFS | Two simultaneous BFS fronts, meet-point detection |
+| **Union-Find / Disjoint-Set Union** | Kruskal maze generation | Path compression + union by rank, near-O(1) amortised |
+| **Minimum Spanning Tree** | Prim & Kruskal maze gen | Frontier expansion (Prim), random edge processing (Kruskal) |
+| **Algorithm Correctness & Testing** | Full test suite | 60 automated tests covering optimality, edge cases, state interfaces |
+| **Separation of Concerns** | `src/` module layout | `algorithms.py` (logic) vs `render.py` (GUI) via unified `StepState` frames |
+| **Complexity Analysis** | Every algorithm | Time & space documented in docstrings and README tables |
+
+### Comprehensive Complexity Comparison
+
+| Algorithm | Best Case | Average / Expected | Worst Case | Space | Optimal? | Heuristic? |
+| :-- | :-- | :-- | :-- | :-- | :-- | :-- |
+| DFS Maze Gen | Θ(V) | Θ(V) | Θ(V) | O(V) | — | — |
+| Prim Maze Gen | Θ(V) | Θ(V) | Θ(V) | O(V) | — | — |
+| Kruskal Maze Gen | Θ(V·α(V)) | Θ(V·α(V)) | Θ(V·α(V)) | O(V) | — | — |
+| BFS | Ω(1) | Θ(V+E) | O(V+E) | O(V) | Yes (unweighted) | No |
+| Dijkstra | Ω(1) | Θ((V+E)logV) | O((V+E)logV) | O(V) | Yes (non-neg) | No |
+| A* | Ω(1) | < Dijkstra | O((V+E)logV) | O(V) | Yes (admissible) | Manhattan |
+| Bi-BFS | Ω(1) | O(b^(d/2)) | O(b^d) | O(V) | Yes (unweighted) | No |
+| Greedy Best-First | Ω(1) | often fast | O((V+E)logV) | O(V) | No | Manhattan |
+| Weighted A* | Ω(1) | < A* | O((V+E)logV) | O(V) | ε-admissible | Manhattan |
+
+*V = number of passable cells, E = number of edges between passable cells, b = branching factor, d = shortest path depth, α = inverse Ackermann function.*
 
 On a uniform grid, BFS, Dijkstra, and A* often end with the same shortest path length.
 To better demonstrate the difference between unweighted and weighted shortest-path problems, this project adds an optional weighted terrain mode:
@@ -128,14 +163,19 @@ This design keeps algorithm logic independent from Pygame rendering.
 
 - `Space`: pause / resume
 - `H`: show help panel
+- `N`: single-step when paused
 - `+/-`: adjust speed
+- `[` / `]`: adjust Weighted A* parameter `W`
 - `1-6`: switch algorithm and rerun on the same maze
 - `R`: restart current solver
+- `T`: toggle weighted terrain mode
 - `C`: toggle comparison board
-- `M`: generate a new maze
+- `M`: generate a new maze (saves current maze to history)
+- `Left` / `Right`: browse maze history (auto-switches comparison board)
+- `F5`: export comparison results → `comparison_export.json`
+- `F6`: import maze ← `maze_import.txt`
 - `ESC`: close help panel or return to menu
-
-Additional controls such as single-step, weighted-terrain toggle, and Weighted A* parameter adjustment are documented in the help panel.
+- `Mouse wheel`: scroll help panel
 
 ## Run
 

@@ -18,3 +18,7 @@ Thumbs.db
 
 .idea/
 .vscode/
+
+# Runtime-generated files
+comparison_export.json
+maze_import.txt

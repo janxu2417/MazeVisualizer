@@ -14,7 +14,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from app import _create_state, _step_solver  # noqa: E402
+from app import _create_state, _step_solver, AppState  # noqa: E402
 from config import ALGORITHM_NAMES, AppConfig  # noqa: E402
 from menu import build_algo_buttons, build_menu_buttons  # noqa: E402
 from render import (  # noqa: E402
@@ -58,6 +58,8 @@ def test_draw_menu_smoke(screen_and_fonts):
     screen, title_font, font, small_font = screen_and_fonts
     buttons = build_menu_buttons(screen.get_width(), screen.get_height())
     background = build_menu_background(screen.get_width(), screen.get_height())
+    config = AppConfig(rows=21, cols=21)
+    app = _create_state(config, "BFS")
     draw_menu(
         screen,
         title_font,
@@ -71,6 +73,7 @@ def test_draw_menu_smoke(screen_and_fonts):
         "BFS",
         "Terrain: OFF",
         show_help=False,
+        app=app,
     )
     pygame.display.flip()
 
@@ -95,7 +98,9 @@ def test_draw_algo_menu_smoke(screen_and_fonts):
 
 def test_draw_help_panel_smoke(screen_and_fonts):
     screen, _, font, small_font = screen_and_fonts
-    draw_help_panel(screen, font, small_font)
+    config = AppConfig(rows=21, cols=21)
+    app = _create_state(config, "BFS")
+    draw_help_panel(screen, font, small_font, app)
     pygame.display.flip()
 
 

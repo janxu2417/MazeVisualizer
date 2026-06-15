@@ -1,3 +1,11 @@
+"""Pygame rendering layer for MazeVisualizer.
+
+Responsible for all drawing operations: maze grid, search overlays (visited,
+frontier, current, path), HUD, comparison board, menu screens, help panel,
+legend, and status messages.  Separated from algorithm and application logic
+to satisfy the GUI separation-of-concerns requirement.
+"""
+
 from __future__ import annotations
 
 import pygame
@@ -8,6 +16,11 @@ from menu import ButtonSpec
 
 
 def load_font(size: int, bold: bool = False) -> pygame.font.Font:
+    """Return a :class:`pygame.font.Font` of the given *size*.
+
+    Tries a priority list of CJK-capable fonts (Microsoft YaHei, SimHei, etc.)
+    and falls back to the system default if none match.
+    """
     candidates = [
         "Microsoft YaHei",
         "SimHei",
@@ -28,6 +41,12 @@ def load_font(size: int, bold: bool = False) -> pygame.font.Font:
 
 
 def build_base_surface(config: AppConfig, grid: list[list[int]], cost_map: CostMap | None) -> pygame.Surface:
+    """Render the static maze grid onto a reusable surface.
+
+    Walls are drawn with the wall colour; passable cells are tinted by
+    terrain cost when *cost_map* is provided.  Grid lines are drawn on top.
+    The returned surface is blitted as background every frame.
+    """
     width = config.cols * config.cell_size + config.side_padding * 2
     height = config.rows * config.cell_size + config.top_bar_height + config.bottom_padding
     surface = pygame.Surface((width, height))
@@ -58,14 +77,24 @@ def draw_run_view(
     config: AppConfig,
     app: object,
 ) -> None:
+    """Top-level render call for the running / paused view.
+
+    Composes the base surface, search overlay, HUD, comparison board, legend,
+    and (if active) the help panel in draw order.
+    """
     screen.blit(app.base_surface, (0, 0))
     draw_overlay(screen, config, app)
     draw_hud(screen, title_font, font, small_font, config, app)
     if app.help_visible:
-        draw_help_panel(screen, font, small_font)
+        draw_help_panel(screen, font, small_font, app)
 
 
 def draw_overlay(screen: pygame.Surface, config: AppConfig, app: object) -> None:
+    """Paint the per-frame search visualization layer.
+
+    Renders visited cells, frontier cells, the current-expansion cell, the
+    live/preview path, and start/goal markers using colours from ``COLORS``.
+    """
     top = config.top_bar_height
     width = config.cols * config.cell_size + config.side_padding * 2
     height = config.rows * config.cell_size + config.top_bar_height + config.bottom_padding
@@ -110,28 +139,56 @@ def draw_hud(
     config: AppConfig,
     app: object,
 ) -> None:
+    """Render the top-bar heads-up display.
+
+    Shows algorithm name, run status, speed, weighted W, terrain toggle,
+    maze history index, path stats, key hints, the legend, comparison board,
+    and temporary status messages.
+    """
     width = config.cols * config.cell_size + config.side_padding * 2
     pygame.draw.rect(screen, COLORS["panel"], pygame.Rect(0, 0, width, config.top_bar_height))
 
     status = "DONE" if app.finished else ("PAUSED" if app.paused else "RUNNING")
     terrain_text = "ON" if app.cost_map is not None else "OFF"
     stats = app.last_state["stats"]
+    history_info = f"map {app.maze_index + 1}/{len(app.maze_history)}" if app.maze_history else ""
     line1 = (
         f"{app.algorithm_name} | {status} | speed {config.step_interval_ms}ms | "
-        f"W {config.weighted_a_star_w:.1f} | terrain {terrain_text}"
+        f"W {config.weighted_a_star_w:.1f} | terrain {terrain_text} | {history_info}"
     )
     line2 = (
         f"path {stats.path_length} | visited {stats.visited_count} | steps {stats.step_count} | "
-        f"cost {stats.cost} | optimal {'Yes' if stats.optimal else 'No'}"
+        f"cost {stats.cost}"
     )
-    line3 = "Space pause  +/- speed  C toggle compare  M new maze  H help"
+    line3 = "Space pause  +/- speed  C compare  M new  \u2190\u2192 history  H help"
 
     screen.blit(title_font.render("MazeVisualizer", True, COLORS["text"]), (10, 4))
     screen.blit(font.render(line1, True, COLORS["text"]), (10, 34))
     screen.blit(small_font.render(line2, True, COLORS["text_dim"]), (10, 58))
     screen.blit(small_font.render(line3, True, COLORS["text_dim"]), (10, 78))
+    _draw_status_message(screen, small_font, config, app)
     draw_legend(screen, config)
     draw_comparison_board(screen, small_font, config, app)
+
+
+def _draw_status_message(
+    screen: pygame.Surface,
+    font: pygame.font.Font,
+    config: AppConfig,
+    app: object,
+) -> None:
+    """Show a temporary status message (e.g. export/import feedback)."""
+    if not app.status_message:
+        return
+    elapsed = pygame.time.get_ticks() - app.status_message_time
+    if elapsed > 3000:
+        app.status_message = ""
+        return
+    alpha = 255 if elapsed < 2000 else max(60, int(255 - (elapsed - 2000) / 1000 * 195))
+    text = font.render(app.status_message, True, COLORS["text"])
+    text.set_alpha(alpha)
+    width = config.cols * config.cell_size + config.side_padding * 2
+    screen.blit(text, ((width - text.get_width()) // 2, config.top_bar_height - 44))
 
 
 def draw_comparison_board(
@@ -140,10 +197,20 @@ def draw_comparison_board(
     config: AppConfig,
     app: object,
 ) -> None:
+    """Draw the multi-algorithm comparison panel (C key toggle).
+
+    Shows a per-maze comparison: path length, visited count, step count,
+    and total path cost for every algorithm that has been run on the current
+    maze.  Title includes `(current/total)` when multiple mazes are in the
+    history.
+    """
     if not app.show_comparison or not app.comparison_results:
         return
 
-    lines = ["Comparison"]
+    total = len(app.maze_history)
+    current = app.maze_index + 1
+    title = f"Comparison  ({current}/{total})" if total > 0 else "Comparison"
+    lines = [title]
     for algorithm, stats in app.comparison_results.items():
         lines.append(
             f"{algorithm}: path {stats.path_length}, visited {stats.visited_count}, "
@@ -180,8 +247,14 @@ def draw_menu(
     algo_label: str,
     terrain_label: str,
     show_help: bool,
+    app: object,
 ) -> None:
-    screen.blit(background, (0, 0))
+    """Render the main menu with setting buttons and current selections.
+
+    Button labels reflect live configuration (size, complexity, maze flavour,
+    algorithm, terrain).  The help panel overlay is shown when *show_help* is
+    ``True``.
+    """
     width, height = screen.get_size()
     title = title_font.render("MazeVisualizer", True, COLORS["text"])
     subtitle = font.render("Maze generation and pathfinding visualization", True, COLORS["text_dim"])
@@ -212,7 +285,7 @@ def draw_menu(
     footer = small_font.render("Select settings, then click Start. ESC closes help.", True, COLORS["text_dim"])
     screen.blit(footer, (width // 2 - footer.get_width() // 2, height - 34))
     if show_help:
-        draw_help_panel(screen, font, small_font)
+        draw_help_panel(screen, font, small_font, app)
 
 
 def draw_algo_menu(
@@ -226,7 +299,12 @@ def draw_algo_menu(
     selected_algo: str,
     weight: float,
 ) -> None:
-    screen.blit(background, (0, 0))
+    """Render the algorithm-selection overlay.
+
+    Lists the six pathfinding algorithms as toggle buttons.  The currently
+    selected algorithm is highlighted, and W+ / W- buttons adjust the
+    Weighted A* parameter on screen.
+    """
     width, height = screen.get_size()
     compact = width <= 440 or height <= 560
     button_font = load_font(config.algo_button_font_size)
@@ -269,6 +347,11 @@ def draw_algo_menu(
 
 
 def build_menu_background(width: int, height: int) -> pygame.Surface:
+    """Create a decorative background surface for menu screens.
+
+    Draws diagonal lines, concentric circles, and small squares with
+    translucent colours to give the menu a polished, non-flat appearance.
+    """
     surface = pygame.Surface((width, height))
     surface.fill(COLORS["bg"])
 
@@ -289,16 +372,33 @@ def draw_help_panel(
     screen: pygame.Surface,
     font: pygame.font.Font,
     small_font: pygame.font.Font,
+    app: object,
 ) -> None:
+    """Render a scrollable help overlay with bilingual key bindings.
+
+    Contents are defined in :data:`config.HELP_LINES`.  The user can scroll
+    with the mouse wheel or arrow keys.  A scroll-position indicator is drawn
+    in the top-right corner of the panel.
+    """
     width, height = screen.get_size()
     overlay = pygame.Surface((width, height), pygame.SRCALPHA)
     overlay.fill((0, 0, 0, 160))
     screen.blit(overlay, (0, 0))
 
-    line_height = small_font.get_linesize() + 6
-    content_height = line_height * len(HELP_LINES)
+    line_height = small_font.get_linesize() + 5
+    total_lines = len(HELP_LINES)
+    content_height = line_height * total_lines
     panel_w = min(width - 40, 720)
-    panel_h = min(height - 40, content_height + 88)
+    max_panel_h = height - 40
+    visible_lines = (max_panel_h - 80) // line_height
+    panel_h = min(max_panel_h, content_height + 80)
+
+    max_scroll = max(0, total_lines - visible_lines)
+    if app.help_scroll > max_scroll:
+        app.help_scroll = max_scroll
+    if app.help_scroll < 0:
+        app.help_scroll = 0
+
     panel = pygame.Rect(
         width // 2 - panel_w // 2,
         height // 2 - panel_h // 2,
@@ -308,13 +408,29 @@ def draw_help_panel(
     pygame.draw.rect(screen, COLORS["panel"], panel, border_radius=10)
     pygame.draw.rect(screen, COLORS["button_border"], panel, 2, border_radius=10)
 
-    title = font.render("Help / 操作说明", True, COLORS["text"])
+    title = font.render("Help /  (scroll with mouse wheel)", True, COLORS["text"])
     screen.blit(title, (panel.x + 20, panel.y + 18))
-    y = panel.y + 60
-    for line in HELP_LINES:
-        text_surface = small_font.render(line, True, COLORS["text_dim"])
+
+    clip_rect = pygame.Rect(panel.x + 4, panel.y + 52, panel_w - 8, panel_h - 62)
+    screen.set_clip(clip_rect)
+    y = panel.y + 56 - app.help_scroll * line_height
+    for i, line in enumerate(HELP_LINES):
+        if y + line_height < clip_rect.top:
+            y += line_height
+            continue
+        if y > clip_rect.bottom:
+            break
+        color = COLORS["text"] if not line or line.startswith("---") else COLORS["text_dim"]
+        text_surface = small_font.render(line, True, color)
         screen.blit(text_surface, (panel.x + 22, y))
         y += line_height
+    screen.set_clip(None)
+
+    if max_scroll > 0:
+        indicator_font = small_font
+        scrolled = f"  {app.help_scroll + 1}-{min(app.help_scroll + visible_lines, total_lines)} / {total_lines}"
+        indicator = indicator_font.render(scrolled, True, COLORS["text_dim"])
+        screen.blit(indicator, (panel.right - indicator.get_width() - 16, panel.y + 22))
 
 
 def _cell_rect(config: AppConfig, top: int, point: Point) -> pygame.Rect:
@@ -339,6 +455,10 @@ def _terrain_color(cost_map: CostMap | None, row: int, col: int) -> tuple[int, i
 
 
 def draw_legend(screen: pygame.Surface, config: AppConfig) -> None:
+    """Draw colour legend inside the top-bar, wrapping to a second line if
+    the screen width is too narrow (e.g. Small size preset on a low-res
+    display).
+    """
     legend_font = load_font(config.legend_font_size)
     items = [
         ("Visited", COLORS["search_visited"]),
@@ -351,11 +471,25 @@ def draw_legend(screen: pygame.Surface, config: AppConfig) -> None:
     ]
     swatch = 12
     gap = 8
-    x = 10
-    y = config.top_bar_height - 24
+    start_x = 10
+    line_height = 18
+    max_width = config.cols * config.cell_size + config.side_padding * 2 - 16
+    lines: list[list[tuple[str, tuple[int, int, int]]]] = [[]]
+    x = start_x
     for label, color in items:
-        pygame.draw.rect(screen, color, pygame.Rect(x, y, swatch, swatch), border_radius=3)
-        x += swatch + 4
         text_surface = legend_font.render(label, True, COLORS["text_dim"])
-        screen.blit(text_surface, (x, y - 1))
-        x += text_surface.get_width() + gap
+        item_width = swatch + 4 + text_surface.get_width()
+        if x + item_width > max_width and lines[-1]:
+            lines.append([])
+            x = start_x
+        lines[-1].append((label, color, text_surface))
+        x += item_width + gap
+
+    for row_idx, line in enumerate(lines):
+        y = config.top_bar_height - 24 + row_idx * line_height
+        x = start_x
+        for label, color, text_surface in line:
+            pygame.draw.rect(screen, color, pygame.Rect(x, y, swatch, swatch), border_radius=3)
+            x += swatch + 4
+            screen.blit(text_surface, (x, y - 1))
+            x += text_surface.get_width() + gap

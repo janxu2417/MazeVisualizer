@@ -2,6 +2,8 @@
 
 [English README](README.md)
 
+> 仓库地址：[https://github.com/janxu2417/MazeVisualizer](https://github.com/janxu2417/MazeVisualizer)
+
 ## 项目背景
 
 MazeVisualizer 是一个基于 Python + Pygame 的迷宫生成与路径搜索可视化项目。
@@ -87,6 +89,41 @@ MazeVisualizer/
 | Greedy | 只看启发函数 | 否 | 通常较快 | `O(V)` | 可能走次优路径 |
 | Weighted A* | `f(n)=g(n)+W*h(n)` | 不一定最优 | 通常比 A* 更快 | `O(V)` | 用速度换最优性 |
 
+### 课程知识点覆盖
+
+本项目与课程《数据结构与算法》以下知识点直接对应：
+
+| 课程知识点 | 应用位置 | 实现细节 |
+| :-- | :-- | :-- |
+| **DFS / 回溯** | DFS 迷宫生成 | 显式栈、每次跨两格挖路、无路可走时回溯 |
+| **BFS / FIFO 队列** | BFS 求解、双向 BFS | `collections.deque`、逐层扩展 |
+| **图的表示** | 所有求解器 | 隐式网格图 → 四方向邻接，无需显式边列表 |
+| **优先队列 / 二叉堆** | Dijkstra、A*、Greedy、Weighted A* | `heapq`、元组 `(priority, ...)` 作堆元素 |
+| **最短路（贪心范式）** | Dijkstra | 边松弛、非负权图最优性 |
+| **启发式搜索 / 知情搜索** | A*、Greedy、Weighted A* | Manhattan 距离 `|dr|+|dc|`、可采纳且一致 |
+| **双向搜索** | Bi-BFS | 两路 BFS 同时推进、交汇点检测与路径合并 |
+| **并查集 / Union-Find** | Kruskal 迷宫生成 | 路径压缩 + 按秩合并，均摊近 O(1) |
+| **最小生成树** | Prim、Kruskal 迷宫生成 | 边界扩张（Prim）、随机边处理（Kruskal） |
+| **算法正确性与测试** | 完整测试套件 | 60 条自动化测试，覆盖最优性、边界情况、状态接口 |
+| **关注点分离** | `src/` 模块划分 | `algorithms.py`（逻辑）与 `render.py`（界面）通过统一 `StepState` 帧解耦 |
+| **复杂度分析** | 所有算法 | 时间复杂度与空间复杂度标注于 docstring 和 README 表格 |
+
+### 综合复杂度对比
+
+| 算法 | 最优情况 | 平均/期望 | 最坏情况 | 空间 | 最优性 | 启发式 |
+| :-- | :-- | :-- | :-- | :-- | :-- | :-- |
+| DFS 迷宫 | Θ(V) | Θ(V) | Θ(V) | O(V) | — | — |
+| Prim 迷宫 | Θ(V) | Θ(V) | Θ(V) | O(V) | — | — |
+| Kruskal 迷宫 | Θ(V·α(V)) | Θ(V·α(V)) | Θ(V·α(V)) | O(V) | — | — |
+| BFS | Ω(1) | Θ(V+E) | O(V+E) | O(V) | 是（无权图） | 否 |
+| Dijkstra | Ω(1) | Θ((V+E)logV) | O((V+E)logV) | O(V) | 是（非负权） | 否 |
+| A* | Ω(1) | < Dijkstra | O((V+E)logV) | O(V) | 是（可采纳） | Manhattan |
+| Bi-BFS | Ω(1) | O(b^(d/2)) | O(b^d) | O(V) | 是（无权图） | 否 |
+| Greedy | Ω(1) | 通常很快 | O((V+E)logV) | O(V) | 否 | Manhattan |
+| Weighted A* | Ω(1) | < A* | O((V+E)logV) | O(V) | ε-可采纳 | Manhattan |
+
+*V = 可通过单元数量，E = 可通过单元间边数，b = 分支因子，d = 最短路深度，α = 反 Ackermann 函数。*
+
 ### 三、为什么加入加权地形
 
 如果所有通路代价都相同，那么 BFS、Dijkstra、A* 往往得到相同的最短路径长度，差异主要体现在搜索顺序。
@@ -127,9 +164,13 @@ MazeVisualizer/
 - `1-6`：切换算法并在同一迷宫上重新运行
 - `R`：重启当前算法
 - `T`：切换加权地形模式
-- `C`：清空对比面板
-- `M`：生成新迷宫
+- `C`：显示/隐藏对比面板
+- `M`：生成新迷宫（保存当前迷宫到历史）
+- `←` / `→`：浏览迷宫历史（对比板随地图切换）
+- `F5`：导出对比结果 → `comparison_export.json`
+- `F6`：导入迷宫 ← `maze_import.txt`
 - `ESC`：关闭帮助面板或返回菜单
+- `鼠标滚轮`：滚动帮助面板
 
 ## 运行方式
 
@@ -222,7 +263,11 @@ python -m pytest tests/test_render_smoke.py
 
 建议在 `docs/` 中保留截图或 GIF，并在 PDF 报告中展示。
 
-![MazeVisualizer screenshot](docs/screenshot.png)
+![MazeVisualizer 菜单界面](docs/menu_v2.png)
+
+![MazeVisualizer 搜索过程](docs/run_searching_v2.png)
+
+![MazeVisualizer 搜索完成](docs/run_finished_v2.png)
 
 建议报告中至少给出三类截图：
 

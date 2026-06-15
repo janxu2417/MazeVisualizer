@@ -21,8 +21,11 @@ from app import (  # noqa: E402
     _create_state,
     _cycle_complexity,
     _empty_step_state,
+    _export_comparison,
     _handle_keydown,
+    _import_maze_grid,
     _make_solver,
+    _navigate_history,
     _set_help_visible,
     _step_solver,
 )
@@ -173,3 +176,125 @@ def test_c_toggle_should_hide_compare_without_clearing_results(pygame_ready):
     _handle_keydown(event, config, state)
     assert state.show_comparison is True
     assert "BFS" in state.comparison_results
+
+
+def test_m_key_preserves_old_results_in_history(pygame_ready):
+    config = AppConfig(rows=21, cols=21)
+    state = _create_state(config, "BFS")
+    state.comparison_results["BFS"] = RunStats(
+        visited_count=10,
+        path_length=8,
+        step_count=10,
+        optimal=True,
+        cost=8,
+    )
+    state.comparison_results["Dijkstra"] = RunStats(
+        visited_count=7,
+        path_length=8,
+        step_count=7,
+        optimal=True,
+        cost=8,
+    )
+    event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_m, unicode="m")
+    _handle_keydown(event, config, state)
+    assert len(state.maze_history) == 2
+    assert state.maze_index == 1
+    saved = state.maze_history[0]
+    assert "BFS" in saved.comparison_results
+    assert "Dijkstra" in saved.comparison_results
+    assert saved.comparison_results["BFS"].path_length == 8
+    assert len(state.comparison_results) == 0
+    assert state.show_comparison is True
+
+
+def test_history_navigate_back_and_forth_restores_comparison(pygame_ready):
+    config = AppConfig(rows=21, cols=21)
+    state = _create_state(config, "BFS")
+    state.comparison_results["BFS"] = RunStats(
+        visited_count=12,
+        path_length=8,
+        step_count=12,
+        optimal=True,
+        cost=8,
+    )
+    event_m = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_m, unicode="m")
+    _handle_keydown(event_m, config, state)
+    assert state.maze_index == 1
+    assert len(state.maze_history) == 2
+    assert state.maze_history[0].comparison_results["BFS"].path_length == 8
+    assert len(state.comparison_results) == 0
+
+    state.comparison_results["A*"] = RunStats(
+        visited_count=9,
+        path_length=8,
+        step_count=9,
+        optimal=True,
+        cost=8,
+    )
+    _handle_keydown(event_m, config, state)
+    assert state.maze_index == 2
+    assert len(state.maze_history) == 3
+    assert state.maze_history[1].comparison_results["A*"].path_length == 8
+    assert len(state.comparison_results) == 0
+
+    event_left = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_LEFT, unicode="")
+    _handle_keydown(event_left, config, state)
+    assert state.maze_index == 1
+    assert "A*" in state.comparison_results
+    assert "BFS" not in state.comparison_results
+
+    _handle_keydown(event_left, config, state)
+    assert state.maze_index == 0
+    assert "BFS" in state.comparison_results
+    assert "A*" not in state.comparison_results
+
+    event_right = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_RIGHT, unicode="")
+    _handle_keydown(event_right, config, state)
+    assert state.maze_index == 1
+    assert "A*" in state.comparison_results
+
+
+def test_export_comparison_writes_valid_json(tmp_path, pygame_ready):
+    config = AppConfig(rows=21, cols=21)
+    state = _create_state(config, "BFS")
+    state.comparison_results["BFS"] = RunStats(
+        visited_count=10,
+        path_length=5,
+        step_count=10,
+        optimal=True,
+        cost=5,
+    )
+    filepath = tmp_path / "export.json"
+    _export_comparison(state, str(filepath))
+    assert filepath.exists()
+
+    import json
+    data = json.loads(filepath.read_text(encoding="utf-8"))
+    assert data["algorithm"] == "BFS"
+    assert data["comparison_results"]["BFS"]["path_length"] == 5
+    assert data["comparison_results"]["BFS"]["optimal"] is True
+    assert len(data["grid"]) == 21
+
+
+def test_import_maze_grid_parses_valid_file(tmp_path):
+    content = "0 0 0\n0 1 0\n0 0 0\n"
+    filepath = tmp_path / "maze.txt"
+    filepath.write_text(content)
+    grid = _import_maze_grid(str(filepath))
+    assert grid == [[0, 0, 0], [0, 1, 0], [0, 0, 0]]
+
+
+def test_import_maze_grid_skips_comments_and_blanks(tmp_path):
+    content = "# header\n0 0 0\n\n0 1 0\n# footer\n0 0 0\n"
+    filepath = tmp_path / "maze.txt"
+    filepath.write_text(content)
+    grid = _import_maze_grid(str(filepath))
+    assert grid == [[0, 0, 0], [0, 1, 0], [0, 0, 0]]
+
+
+def test_import_maze_grid_rejects_inconsistent_rows(tmp_path):
+    content = "0 0 0\n0 1\n"
+    filepath = tmp_path / "bad.txt"
+    filepath.write_text(content)
+    with pytest.raises(ValueError):
+        _import_maze_grid(str(filepath))

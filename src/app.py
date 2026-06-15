@@ -43,7 +43,36 @@ SolverIterator = Iterator[StepState]
 
 
 @dataclass
+class MazeSnapshot:
+    """A saved maze + its accumulated comparison results for history navigation.
+
+    Immutable snapshot taken before generating a new maze so the user can
+    return to a previous configuration with ``←`` / ``→`` keys.
+    """
+
+    grid: Grid
+    start: Point
+    goal: Point
+    maze_method: str
+    algorithm_name: str
+    comparison_results: dict[str, RunStats]
+    cost_map: CostMap | None = None
+    visit_index: dict[Point, int] | None = None
+    base_surface: pygame.Surface | None = None
+
+
+@dataclass
 class AppState:
+    """Mutable runtime state for a single maze + algorithm session.
+
+    Separated from :class:`AppConfig` to allow hot-reloading of algorithm
+    and terrain without losing the shared configuration.
+
+    *maze_history* stores previous mazes as ``MazeSnapshot`` objects.
+    *maze_index* is the current position in the history (-1 for the live
+    maze that hasn't been archived yet).
+    """
+
     grid: Grid
     start: Point
     goal: Point
@@ -63,9 +92,27 @@ class AppState:
     cost_map: CostMap | None = None
     comparison_results: dict[str, RunStats] = field(default_factory=dict)
     show_comparison: bool = True
+    maze_history: list[MazeSnapshot] = field(default_factory=list)
+    maze_index: int = -1
+    status_message: str = ""
+    status_message_time: int = 0
+    help_scroll: int = 0
 
 
 def run_app() -> None:
+    """Main application entry point — initialise and run the event loop.
+
+    Lifecycle
+    ---------
+    1. Init Pygame, build fonts, create the 3-state FSM (menu/algo/run).
+    2. In ``"menu"`` mode: configure size, complexity, maze method, terrain.
+    3. In ``"algo"`` mode: choose a pathfinding algorithm and adjust W.
+    4. In ``"run"`` mode: step the solver, render overlays + HUD + comparison.
+    5. ESC returns to menu; ^C or window-close quits.
+
+    Runs at a fixed 60 FPS via ``pygame.time.Clock``.  Solver stepping is
+    independent of render rate, controlled by *config.step_interval_ms*.
+    """
     pygame.init()
     config = AppConfig()
     size_index = 1
@@ -98,7 +145,13 @@ def run_app() -> None:
             if mode == "menu":
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE and show_help:
                     show_help = False
-                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if show_help and event.type == pygame.KEYDOWN and event.key == pygame.K_DOWN:
+                    app.help_scroll += 1
+                elif show_help and event.type == pygame.KEYDOWN and event.key == pygame.K_UP:
+                    app.help_scroll -= 1
+                elif show_help and event.type == pygame.MOUSEWHEEL:
+                    app.help_scroll -= event.y
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     action = handle_menu_click(event.pos, menu_buttons, show_help)
                     if action == "help":
                         show_help = True
@@ -150,6 +203,12 @@ def run_app() -> None:
                         app.help_visible = False
                 elif event.type == pygame.KEYDOWN and event.key == pygame.K_h:
                     _set_help_visible(app, not app.help_visible)
+                elif app.help_visible and event.type == pygame.KEYDOWN and event.key == pygame.K_DOWN:
+                    app.help_scroll += 1
+                elif app.help_visible and event.type == pygame.KEYDOWN and event.key == pygame.K_UP:
+                    app.help_scroll -= 1
+                elif app.help_visible and event.type == pygame.MOUSEWHEEL:
+                    app.help_scroll -= event.y
                 elif event.type == pygame.KEYUP and event.key == pygame.K_n:
                     app.step_hold = False
                 elif event.type == pygame.KEYDOWN and not app.help_visible:
@@ -178,7 +237,7 @@ def run_app() -> None:
                 config.weighted_a_star_w,
             )
         else:
-            complexity_label = _complexity_label(config.loop_chance, COMPLEXITY_OPTIONS, complexity_custom_label)
+            complexity_label = _complexity_label(config.loop_chance, COMPLEXITY_OPTIONS)
             terrain_label = "Terrain: ON (weighted)" if config.terrain_mode else "Terrain: OFF"
             draw_menu(
                 screen,
@@ -193,6 +252,7 @@ def run_app() -> None:
                 app.algorithm_name,
                 terrain_label,
                 show_help,
+                app,
             )
 
         pygame.display.flip()
@@ -202,6 +262,11 @@ def run_app() -> None:
 
 
 def _create_state(config: AppConfig, algorithm_name: str) -> AppState:
+    """Allocate a fresh :class:`AppState` with a new maze and solver.
+
+    Generates the maze, builds the optional cost map, creates the solver
+    iterator, and pre-renders the static base surface.
+    """
     grid = generate_maze(
         config.rows,
         config.cols,
@@ -230,6 +295,12 @@ def _create_state(config: AppConfig, algorithm_name: str) -> AppState:
 
 
 def _handle_keydown(event: pygame.event.Event, config: AppConfig, app: AppState) -> None:
+    """Dispatch a ``KEYDOWN`` event to the appropriate action.
+
+    Supports: Space (pause), N (single-step), +/- (speed), [/] (W adjust),
+    1-6 (switch algorithm), R (restart), T (terrain), C (compare),
+    M (new maze), Left/Right (history), E (export), Ctrl+I (import).
+    """
     key = event.key
     if key == pygame.K_SPACE:
         app.paused = not app.paused
@@ -302,10 +373,51 @@ def _handle_keydown(event: pygame.event.Event, config: AppConfig, app: AppState)
         return
 
     if key == pygame.K_m:
-        _reset_maze(config, app, preserve_comparison=False)
+        _reset_maze(config, app, preserve_comparison=True)
+
+    if key == pygame.K_LEFT:
+        _navigate_history(config, app, -1)
+
+    if key == pygame.K_RIGHT:
+        _navigate_history(config, app, 1)
+
+    if key == pygame.K_F5:
+        _export_comparison(app, "comparison_export.json")
+        app.status_message = "Exported comparison_export.json"
+        app.status_message_time = pygame.time.get_ticks()
+        return
+
+    if key == pygame.K_F6:
+        try:
+            grid = _import_maze_grid("maze_import.txt")
+            app.grid = grid
+            app.start = (1, 1)
+            app.goal = (len(grid) - 2, len(grid[0]) - 2)
+            app.grid[app.start[0]][app.start[1]] = 1
+            app.grid[app.goal[0]][app.goal[1]] = 1
+            app.cost_map = _build_cost_map(config, app.grid)
+            app.base_surface = build_base_surface(config, app.grid, app.cost_map)
+            _convert_base_surface(app)
+            app.comparison_results.clear()
+            app.maze_history.clear()
+            app.maze_index = -1
+            app.show_comparison = True
+            _reset_solver(config, app, app.algorithm_name)
+            app.status_message = "Imported maze_import.txt"
+            app.status_message_time = pygame.time.get_ticks()
+        except (FileNotFoundError, ValueError) as exc:
+            app.status_message = f"Import failed: {exc}"
+            app.status_message_time = pygame.time.get_ticks()
+        return
 
 
 def _reset_solver(config: AppConfig, app: AppState, algorithm_name: str) -> None:
+    """Rebuild the solver iterator for *algorithm_name* on the current maze.
+
+    Resets all runtime state (visit index, pause, finished flags) without
+    generating a new maze.  The cost map and base surface are rebuilt to
+    reflect the current terrain setting.
+    """
     app.algorithm_name = algorithm_name
     app.cost_map = _build_cost_map(config, app.grid)
     app.base_surface = build_base_surface(config, app.grid, app.cost_map)
@@ -323,6 +435,29 @@ def _reset_solver(config: AppConfig, app: AppState, algorithm_name: str) -> None
 
 
 def _reset_maze(config: AppConfig, app: AppState, preserve_comparison: bool) -> None:
+    """Generate a brand-new maze and restart the current solver on it.
+
+    Archives the current maze as a snapshot in *maze_history* then creates
+    a fresh entry for the new maze.  *preserve_comparison* is ignored —
+    every new maze gets its own clean comparison board.  ``Left`` / ``Right``
+    arrow keys restore previous snapshots.
+    """
+    if not preserve_comparison:
+        app.maze_history.clear()
+        app.maze_index = -1
+    elif app.maze_index < 0 and app.comparison_results:
+        old = MazeSnapshot(
+            grid=[row[:] for row in app.grid],
+            start=app.start,
+            goal=app.goal,
+            maze_method=config.maze_method,
+            algorithm_name=app.algorithm_name,
+            comparison_results=dict(app.comparison_results),
+            cost_map=([row[:] for row in app.cost_map] if app.cost_map else None),
+        )
+        app.maze_history.append(old)
+        app.maze_index = len(app.maze_history) - 1
+
     app.grid = generate_maze(
         config.rows,
         config.cols,
@@ -336,13 +471,119 @@ def _reset_maze(config: AppConfig, app: AppState, preserve_comparison: bool) -> 
     app.cost_map = _build_cost_map(config, app.grid)
     app.base_surface = build_base_surface(config, app.grid, app.cost_map)
     _convert_base_surface(app)
-    if not preserve_comparison:
-        app.comparison_results.clear()
+
+    snapshot = MazeSnapshot(
+        grid=[row[:] for row in app.grid],
+        start=app.start,
+        goal=app.goal,
+        maze_method=config.maze_method,
+        algorithm_name=app.algorithm_name,
+        comparison_results={},
+        cost_map=([row[:] for row in app.cost_map] if app.cost_map else None),
+    )
+    app.maze_history.append(snapshot)
+    app.maze_index = len(app.maze_history) - 1
+    app.comparison_results = snapshot.comparison_results
     app.show_comparison = True
     _reset_solver(config, app, app.algorithm_name)
 
 
+def _navigate_history(config: AppConfig, app: AppState, direction: int) -> None:
+    """Move *direction* steps through the maze history (-1 back, +1 forward).
+
+    Swaps in the target snapshot's grid, start, goal, algorithm, and
+    ``comparison_results`` (by reference, so future solver runs auto-save).
+    Does nothing when the target index is out of bounds.
+    """
+    target = app.maze_index + direction
+    if target < 0 or target >= len(app.maze_history):
+        return
+    app.maze_index = target
+    snapshot = app.maze_history[target]
+    app.comparison_results = snapshot.comparison_results
+    app.grid = [row[:] for row in snapshot.grid]
+    app.start = snapshot.start
+    app.goal = snapshot.goal
+    app.algorithm_name = snapshot.algorithm_name
+    app.cost_map = (
+        [row[:] for row in snapshot.cost_map] if snapshot.cost_map else _build_cost_map(config, app.grid)
+    )
+    app.base_surface = build_base_surface(config, app.grid, app.cost_map)
+    _convert_base_surface(app)
+    app.solver = _make_solver(app.algorithm_name, app.grid, app.start, app.goal, config, app.cost_map)
+    app.visit_index = {}
+    app.last_state = _empty_step_state(app.start)
+    app.step_hold = False
+    app.help_visible = False
+    app.was_paused = False
+    app.paused = False
+    app.finished = False
+    app.finished_time = None
+    app.last_step_time = pygame.time.get_ticks()
+    app.show_comparison = True
+
+
+def _export_comparison(app: AppState, filepath: str) -> None:
+    """Write the current comparison results to a JSON file.
+
+    Includes per-algorithm stats and a compact representation of the maze
+    grid (1 = path, 0 = wall) for reproducibility.
+    """
+    import json
+
+    data = {
+        "rows": len(app.grid),
+        "cols": len(app.grid[0]) if app.grid else 0,
+        "algorithm": app.algorithm_name,
+        "comparison_results": {
+            algo: {
+                "path_length": s.path_length,
+                "visited_count": s.visited_count,
+                "step_count": s.step_count,
+                "cost": s.cost,
+                "optimal": s.optimal,
+            }
+            for algo, s in app.comparison_results.items()
+        },
+        "grid": app.grid,
+    }
+    with open(filepath, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    print(f"Comparison exported to {filepath}")
+
+
+def _import_maze_grid(filepath: str) -> Grid:
+    """Load a maze grid from a text file.
+
+    Supported format: lines of whitespace-separated ``0`` (wall) and ``1``
+    (path) tokens.  Lines may have trailing whitespace.  The first and last
+    lines are used as-is; start/goal are auto-detected as (1,1) and
+    (rows-2, cols-2) after setting those cells to 1.
+    """
+    with open(filepath, "r", encoding="utf-8") as f:
+        grid = []
+        for line in f:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            row = [int(tok) for tok in stripped.split()]
+            grid.append(row)
+    if not grid:
+        raise ValueError("import file is empty")
+    row_len = len(grid[0])
+    for row in grid:
+        if len(row) != row_len:
+            raise ValueError("import grid has inconsistent row lengths")
+    return grid
+
+
 def _step_solver(app: AppState) -> None:
+    """Advance the solver by one frame and update :class:`AppState`.
+
+    Reads the next :class:`~algorithms.StepState` from the solver iterator.
+    On completion, records the final stats in ``comparison_results`` and
+    sets the ``finished`` / ``paused`` flags.
+    """
     try:
         state = next(app.solver)
         app.last_state = state
@@ -363,11 +604,20 @@ def _step_solver(app: AppState) -> None:
 
 
 def _convert_base_surface(app: AppState) -> None:
+    """Call ``.convert()`` on the base surface for faster blitting.
+
+    Should be called whenever the surface is rebuilt (maze regen, terrain
+    toggle) while a display mode is active.
+    """
     if pygame.display.get_surface() is not None:
         app.base_surface = app.base_surface.convert()
 
 
 def _adjust_speed(config: AppConfig, delta_ms: int) -> None:
+    """Change the solver step interval by *delta_ms*, clamped to bounds.
+
+    Positive *delta_ms* = slower; negative = faster.
+    """
     config.step_interval_ms = max(
         config.min_step_ms,
         min(config.max_step_ms, config.step_interval_ms + delta_ms),
@@ -375,6 +625,7 @@ def _adjust_speed(config: AppConfig, delta_ms: int) -> None:
 
 
 def _adjust_weight(config: AppConfig, delta: float) -> None:
+    """Change the Weighted A* parameter *W* by *delta*, clamped to bounds."""
     config.weighted_a_star_w = max(
         config.min_weight,
         min(config.max_weight, config.weighted_a_star_w + delta),
@@ -389,6 +640,11 @@ def _make_solver(
     config: AppConfig,
     cost_map: CostMap | None,
 ) -> SolverIterator:
+    """Factory: return a step-yielding solver iterator for the given algorithm.
+
+    Maps algorithm names (``"BFS"``, ``"Dijkstra"``, etc.) to the
+    corresponding solver function from :mod:`algorithms`.
+    """
     if algorithm_name == "BFS":
         return iter(solve_bfs(grid, start, goal, cost_map=cost_map))
     if algorithm_name == "Dijkstra":
@@ -405,6 +661,10 @@ def _make_solver(
 
 
 def _apply_size_option(config: AppConfig, option: tuple[str, int, int, int]) -> None:
+    """Apply a size preset (Small / Medium / Large) to *config*.
+
+    Updates rows, cols, cell_size, padding, and font sizes.
+    """
     label, rows, cols, cell_size = option
     config.rows = rows
     config.cols = cols
@@ -448,6 +708,7 @@ def _apply_size_option(config: AppConfig, option: tuple[str, int, int, int]) -> 
 
 
 def _apply_complexity_option(config: AppConfig, option: tuple[str, float]) -> None:
+    """Set *loop_chance* from a complexity preset (Low / Medium / High)."""
     _, loop_chance = option
     config.loop_chance = loop_chance
 
@@ -456,15 +717,27 @@ def _apply_maze_option(
     config: AppConfig,
     option: tuple[str, str, float | None, str | None],
 ) -> str | None:
+    """Apply a maze-generation preset, optionally overriding *loop_chance*.
+
+    Returns a custom label string (e.g. ``"Dense"``) when the preset
+    overrides the default loop chance, or ``None`` otherwise.
+    """
     _, method, loop_override, label_override = option
     config.maze_method = method
     if loop_override is not None:
         config.loop_chance = loop_override
         return label_override
+    nearest = min(COMPLEXITY_OPTIONS, key=lambda opt: abs(config.loop_chance - opt[1]))
+    config.loop_chance = nearest[1]
     return None
 
 
 def _resize_window(config: AppConfig) -> tuple[pygame.Surface, list[tuple[str, str, pygame.Rect]], pygame.Surface]:
+    """Create or resize the Pygame window to match *config* dimensions.
+
+    Returns the new screen surface, rebuilt menu buttons, and a
+    pre-rendered background.
+    """
     width = config.cols * config.cell_size + config.side_padding * 2
     height = config.rows * config.cell_size + config.top_bar_height + config.bottom_padding
     screen = pygame.display.set_mode((width, height))
@@ -475,6 +748,7 @@ def _resize_window(config: AppConfig) -> tuple[pygame.Surface, list[tuple[str, s
 
 
 def _build_fonts(config: AppConfig) -> tuple[pygame.font.Font, pygame.font.Font, pygame.font.Font]:
+    """Load the three main font sizes (title, body, small) from system fonts."""
     return (
         load_font(config.title_font_size, bold=True),
         load_font(config.body_font_size),
@@ -485,14 +759,14 @@ def _build_fonts(config: AppConfig) -> tuple[pygame.font.Font, pygame.font.Font,
 def _complexity_label(
     loop_chance: float,
     options: list[tuple[str, float]],
-    custom_label: str | None,
 ) -> str:
-    for label, value in options:
-        if abs(loop_chance - value) < 1e-6:
-            return label
-    if custom_label:
-        return custom_label
-    return f"Custom {loop_chance:.2f}"
+    """Return the nearest complexity preset name for *loop_chance*.
+
+    Always maps to one of Low / Medium / High; never shows maze-specific
+    labels such as ``"Sparse"`` or raw ``"Custom X.XX"`` strings.
+    """
+    nearest = min(options, key=lambda opt: abs(loop_chance - opt[1]))
+    return nearest[0]
 
 
 def _cycle_complexity(
@@ -500,6 +774,13 @@ def _cycle_complexity(
     options: list[tuple[str, float]],
     custom_label: str | None,
 ) -> str | None:
+    """Advance *loop_chance* to the next preset value (circular).
+
+    If the current value is custom (not matching any preset), it is
+    inserted temporarily so the user can cycle back to it.  Returns
+    ``None`` when the new value matches a preset, or a custom label
+    otherwise.
+    """
     base_values = {value for _, value in options}
     cycle = list(options)
     if config.loop_chance not in base_values:
@@ -520,6 +801,11 @@ def _cycle_complexity(
 
 
 def _set_help_visible(app: AppState, visible: bool) -> None:
+    """Toggle the help overlay, pausing/resuming the solver appropriately.
+
+    When the help panel is shown the solver is paused; when dismissed it
+    returns to its previous pause state.
+    """
     if visible and not app.help_visible:
         app.help_visible = True
         app.was_paused = app.paused
@@ -532,6 +818,12 @@ def _set_help_visible(app: AppState, visible: bool) -> None:
 
 
 def _build_cost_map(config: AppConfig, grid: Grid) -> CostMap | None:
+    """Build a terrain cost map, or return ``None`` if terrain is off.
+
+    When enabled, each passable cell is assigned a random cost of 1, 3,
+    or 5 based on *terrain_ratio* and a deterministic seed derived from
+    *terrain_seed* + grid dimensions.
+    """
     if not config.terrain_mode:
         return None
     rng = random.Random(config.terrain_seed + config.rows * 100 + config.cols)
@@ -554,6 +846,11 @@ def _build_cost_map(config: AppConfig, grid: Grid) -> CostMap | None:
 
 
 def _empty_step_state(start: Point) -> StepState:
+    """Return a blank :class:`~algorithms.StepState` initialised at *start*.
+
+    Used to populate ``last_state`` before the solver has yielded its
+    first frame.
+    """
     return {
         "current": start,
         "visited": set(),

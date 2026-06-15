@@ -1,12 +1,20 @@
+"""Menu button builders and click-dispatch for the MazeVisualizer GUI."""
+
 from __future__ import annotations
 
 import pygame
 
 
 ButtonSpec = tuple[str, str, pygame.Rect]
+"""Tuple type for a menu button: ``(label, action, rect)``."""
 
 
 def build_menu_buttons(width: int, height: int) -> list[ButtonSpec]:
+    """Create the seven buttons for the main menu screen.
+
+    Returns a list of ``(label, action, rect)`` tuples for Size, Complexity,
+    Maze, Algorithm, Terrain, Start, and Help.
+    """
     button_w = min(340, width - 40)
     button_h = 40
     gap = 10
@@ -30,6 +38,11 @@ def build_menu_buttons(width: int, height: int) -> list[ButtonSpec]:
 
 
 def build_algo_buttons(width: int, height: int, labels: list[str]) -> list[ButtonSpec]:
+    """Create the algorithm-selection button layout.
+
+    Arranges six algorithm buttons in a 2×3 grid, plus Back, W-, and W+
+    controls.  Switches to compact sizing when the window is small.
+    """
     compact = width <= 440 or height <= 560
     horizontal_margin = 32 if compact else 40
     column_gap = 12 if compact else 16
@@ -66,6 +79,10 @@ def handle_menu_click(
     buttons: list[ButtonSpec],
     blocked: bool,
 ) -> str | None:
+    """Return the *action* of the button under *pos*, or ``None``.
+
+    If *blocked* is ``True`` (help panel is open), no clicks are dispatched.
+    """
     if blocked:
         return None
     for _, action, rect in buttons:

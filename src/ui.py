@@ -1,3 +1,5 @@
+"""Alternate entry point — same effect as ``python src/main.py``."""
+
 from app import run_app
 
 

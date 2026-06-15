@@ -1,0 +1,1 @@
+# MazeVisualizer test package
