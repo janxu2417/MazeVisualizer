@@ -702,6 +702,7 @@ def _reset_solver(
     _convert_base_surface(app)
     app.solver = _make_solver(algorithm_name, app.grid, app.start, app.goal, config, app.cost_map)
     app.visit_index = {}
+    app.path_reveal_start = None
     app.last_state = _empty_step_state(app.start)
     app.step_hold = False
     app.help_visible = False
@@ -782,6 +783,7 @@ def _navigate_history(config: AppConfig, app: AppState, direction: int) -> None:
     _clear_edit_history(app)
     app.solver = _make_solver(app.algorithm_name, app.grid, app.start, app.goal, config, app.cost_map)
     app.visit_index = {}
+    app.path_reveal_start = None
     app.last_state = _empty_step_state(app.start)
     app.step_hold = False
     app.help_visible = False
@@ -865,6 +867,7 @@ def _step_solver(app: AppState) -> None:
             app.paused = True
             app.finished_time = pygame.time.get_ticks()
             app.step_hold = False
+            app.path_reveal_start = app.finished_time
             app.comparison_results[app.algorithm_name] = state["stats"]
             if 0 <= app.maze_index < len(app.maze_history):
                 app.maze_history[app.maze_index].comparison_results = app.comparison_results

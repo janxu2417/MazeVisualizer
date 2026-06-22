@@ -160,7 +160,9 @@ def test_draw_run_view_clears_uncovered_pixels(screen_and_fonts):
     config = AppConfig(rows=21, cols=21)
     app_state = _create_state(config, "BFS")
     draw_run_view(screen, title_font, font, small_font, config, app_state)
-    assert screen.get_at((screen.get_width() - 1, screen.get_height() - 1))[:3] == COLORS["bg"]
+    board_w = 21 * 19 + 28 * 2
+    board_h = 21 * 19 + 126 + 56
+    assert screen.get_at((board_w - 1, board_h - 1))[:3] == COLORS["bg"]
 
 
 def test_draw_run_view_transforms_overlay_markers_with_zoom(screen_and_fonts):

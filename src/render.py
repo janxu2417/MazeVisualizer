@@ -96,19 +96,17 @@ def draw_run_view(
     zoomed the view (P2-2) the base surface and overlay are transformed
     accordingly.
     """
-    screen.fill(COLORS["bg"])
     zoom = getattr(app, "zoom", 1.0)
     px = getattr(app, "pan_x", 0)
     py = getattr(app, "pan_y", 0)
-    board_surface = app.base_surface.copy()
-    draw_overlay(board_surface, config, app)
     if zoom == 1.0:
-        screen.blit(board_surface, (px, py))
+        screen.blit(app.base_surface, (px, py))
     else:
-        sw = max(1, int(board_surface.get_width() * zoom))
-        sh = max(1, int(board_surface.get_height() * zoom))
-        scaled = pygame.transform.smoothscale(board_surface, (sw, sh))
+        sw = int(app.base_surface.get_width() * zoom)
+        sh = int(app.base_surface.get_height() * zoom)
+        scaled = pygame.transform.smoothscale(app.base_surface, (sw, sh))
         screen.blit(scaled, (px, py))
+    draw_overlay(screen, config, app)
     draw_hud(screen, title_font, font, small_font, config, app)
     if app.help_visible:
         draw_help_panel(screen, font, small_font, app)
@@ -251,11 +249,13 @@ def _edit_hover_color(tool: EditTool) -> tuple[int, int, int]:
 
 
 
-def draw_overlay(surface: pygame.Surface, config: AppConfig, app: object) -> None:
-    """Paint the per-frame search visualization layer onto a board-local surface.
+def draw_overlay(screen: pygame.Surface, config: AppConfig, app: object) -> None:
+    """Paint the per-frame search visualization layer.
 
-    Renders visited cells, frontier cells, the current-expansion cell, the
-    live/preview path, and start/goal markers using colours from ``COLORS``.
+    All overlay elements (visited, frontier, current, path, start/goal) are
+    composited onto a single transparent surface, then scaled and panned
+    according to ``app.zoom`` / ``app.pan_x`` / ``app.pan_y`` so that the
+    overlay stays in sync with the base surface under zoom/pan.
     """
     top = config.top_bar_height
     width, height = _board_pixel_size(app.grid, config)
@@ -272,24 +272,39 @@ def draw_overlay(surface: pygame.Surface, config: AppConfig, app: object) -> Non
             continue
         pygame.draw.rect(overlay, (*COLORS["search_frontier"], 142), _cell_rect(config, top, point))
 
-    surface.blit(overlay, (0, 0))
-
     current = state["current"]
     if current and current not in (app.start, app.goal):
         rect = _cell_rect(config, top, current)
         inset = max(2, config.cell_size // 6)
         inner_rect = rect.inflate(-inset * 2, -inset * 2)
-        pygame.draw.rect(surface, COLORS["search_current"], inner_rect, border_radius=max(3, config.cell_size // 4))
+        pygame.draw.rect(overlay, (*COLORS["search_current"], 255), inner_rect, border_radius=max(3, config.cell_size // 4))
 
     show_live_path = app.algorithm_name in config.live_path_algorithms
     path_points = state["path"] if (state["finished"] or show_live_path) else []
+    reveal_start = getattr(app, "path_reveal_start", None)
+    if reveal_start is not None and state["finished"] and path_points:
+        elapsed = pygame.time.get_ticks() - reveal_start
+        reveal_ratio = min(1.0, elapsed / 500)  # 500 ms full reveal
+        visible_count = max(1, int(len(path_points) * reveal_ratio))
+        path_points = path_points[:visible_count]
     for point in path_points:
         if point in (app.start, app.goal):
             continue
-        pygame.draw.rect(surface, COLORS["route"], _cell_rect(config, top, point), border_radius=2)
+        pygame.draw.rect(overlay, (*COLORS["route"], 255), _cell_rect(config, top, point), border_radius=2)
 
     for label, point in (("start", app.start), ("goal", app.goal)):
-        pygame.draw.rect(surface, COLORS[label], _cell_rect(config, top, point))
+        pygame.draw.rect(overlay, (*COLORS[label], 255), _cell_rect(config, top, point))
+
+    zoom = getattr(app, "zoom", 1.0)
+    px = getattr(app, "pan_x", 0)
+    py = getattr(app, "pan_y", 0)
+    if zoom == 1.0:
+        screen.blit(overlay, (px, py))
+    else:
+        sw = max(1, int(width * zoom))
+        sh = max(1, int(height * zoom))
+        scaled = pygame.transform.smoothscale(overlay, (sw, sh))
+        screen.blit(scaled, (px, py))
 
 
 def _grid_width(config: AppConfig, grid: list[list[int]]) -> int:
@@ -351,7 +366,6 @@ def draw_hud(
     """
     width = _grid_width(config, app.grid)
     compact = width < 560
-    info_font = load_font(config.small_font_size + 2) if compact else small_font
     pygame.draw.rect(screen, COLORS["panel"], pygame.Rect(0, 0, width, config.top_bar_height))
 
     status = "DONE" if app.finished else ("PAUSED" if app.paused else "RUNNING")
@@ -362,27 +376,16 @@ def draw_hud(
     terrain_text = "ON" if app.cost_map is not None else "OFF"
     history_info = f"{app.maze_index + 1}/{len(app.maze_history)}" if app.maze_history else "live"
     theme_name = getattr(config, "theme_name", "dark")
-    meta_text = (
-        f"W {config.weighted_a_star_w:.1f} | terrain {terrain_text} | theme {theme_name}"
-        if compact
-        else f"W {config.weighted_a_star_w:.1f} | terr {terrain_text} | theme {theme_name}"
-    )
 
-    title_surface = title_font.render(app.algorithm_name, True, COLORS["text"])
-    screen.blit(title_surface, (12, 12))
-    status_surface = info_font.render(status, True, status_color)
+    screen.blit(title_font.render(app.algorithm_name, True, COLORS["text"]), (12, 12))
+    status_surface = small_font.render(status, True, status_color)
     screen.blit(status_surface, (14, 46))
-    meta = info_font.render(
-        meta_text,
+    meta = small_font.render(
+        f"W {config.weighted_a_star_w:.1f}  |  terrain {terrain_text}  |  theme {theme_name}",
         True,
         COLORS["text_dim"],
     )
     screen.blit(meta, (14, 68))
-    left_zone_right = max(
-        12 + title_surface.get_width(),
-        14 + status_surface.get_width(),
-        14 + meta.get_width(),
-    )
 
     # --- stat cards ---
     stat_items = [
@@ -393,8 +396,10 @@ def draw_hud(
     ]
     if compact:
         # 1×4 row spanning the centre, pushed left to leave right zone breathable
-        card_h = 28
-        center_x, card_w, card_gap = _compact_stat_row_layout(width, title_surface.get_width())
+        card_w, card_h = 72, 28
+        card_gap = 4
+        total_w = card_w * 4 + card_gap * 3
+        center_x = (width - total_w) // 2
         for idx, (label, value) in enumerate(stat_items):
             rx = center_x + idx * (card_w + card_gap)
             rect = pygame.Rect(rx, 14, card_w, card_h)
@@ -405,21 +410,11 @@ def draw_hud(
             screen.blit(value_surface, (rect.right - value_surface.get_width() - 5, rect.y + 2))
     else:
         # 2×2 grid for Medium / Large presets
-        right_text = [
-            f"speed {config.step_interval_ms}ms",
-            f"maze {history_info}",
-            "U theme  E edit  H help",
-        ]
-        right_surfaces = [small_font.render(line, True, COLORS["text_dim"]) for line in right_text]
-        right_zone_left = width - 14 - max(surface.get_width() for surface in right_surfaces)
-        card_w = 110
-        col_step = 122
-        grid_width = card_w * 2 + (col_step - card_w)
-        center_x = _regular_stat_grid_layout(width, left_zone_right, right_zone_left, grid_width)
+        center_x = max(190, width // 2 - 128)
         for index, (label, value) in enumerate(stat_items):
             col = index % 2
             row = index // 2
-            rect = pygame.Rect(center_x + col * col_step, 16 + row * 38, card_w, 30)
+            rect = pygame.Rect(center_x + col * 128, 16 + row * 38, 116, 30)
             pygame.draw.rect(screen, COLORS["panel_alt"], rect, border_radius=8)
             pygame.draw.rect(screen, COLORS["button_border"], rect, 1, border_radius=8)
             screen.blit(small_font.render(label, True, COLORS["text_dim"]), (rect.x + 8, rect.y + 4))
@@ -429,11 +424,17 @@ def draw_hud(
     # --- right-zone hints ---
     if compact:
         right_line = f"spd{config.step_interval_ms} | {history_info} | U E H"
-        surface = info_font.render(right_line, True, COLORS["text_dim"])
-        screen.blit(surface, (width - surface.get_width() - 10, 46))
+        surface = small_font.render(right_line, True, COLORS["text_dim"])
+        screen.blit(surface, (width - surface.get_width() - 10, 14))
     else:
+        right_text = [
+            f"speed {config.step_interval_ms}ms",
+            f"maze {history_info}",
+            "U theme  E edit  H help",
+        ]
         y = 14
-        for surface in right_surfaces:
+        for line in right_text:
+            surface = small_font.render(line, True, COLORS["text_dim"])
             screen.blit(surface, (width - surface.get_width() - 14, y))
             y += 22
 
