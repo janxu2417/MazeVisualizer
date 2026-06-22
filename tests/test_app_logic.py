@@ -1,15 +1,7 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pygame
 import pytest
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = PROJECT_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
 
 from app import (  # noqa: E402
     _adjust_speed,
@@ -17,6 +9,7 @@ from app import (  # noqa: E402
     _apply_complexity_option,
     _apply_maze_option,
     _apply_size_option,
+    _apply_size_preset,
     _build_cost_map,
     _create_state,
     _cycle_complexity,
@@ -26,6 +19,9 @@ from app import (  # noqa: E402
     _import_maze_grid,
     _make_solver,
     _navigate_history,
+    _reset_maze,
+    _reset_solver,
+    _refresh_edited_maze,
     _set_help_visible,
     _step_solver,
 )
@@ -47,6 +43,13 @@ def test_apply_size_option_updates_config():
     assert (config.rows, config.cols, config.cell_size) == (41, 41, 15)
     assert config.side_padding == 18
     assert config.bottom_padding == 42
+
+
+def test_apply_size_option_updates_small_top_bar_height():
+    config = AppConfig()
+    _apply_size_option(config, SIZE_OPTIONS[0])
+    assert (config.rows, config.cols, config.cell_size) == (21, 21, 20)
+    assert config.top_bar_height == 132
 
 
 def test_apply_complexity_option_updates_loop_chance():
@@ -114,6 +117,104 @@ def test_build_cost_map_is_deterministic_and_weighted():
     assert cost_map_a[0][0] == 0
 
 
+def test_reset_solver_keeps_existing_cost_map_when_preserving_it(pygame_ready):
+    config = AppConfig(rows=21, cols=21, terrain_mode=True)
+    state = _create_state(config, "BFS")
+    assert state.cost_map is not None
+    state.cost_map[1][1] = 5
+    state.cost_map[1][2] = 3
+    original_cost_map = [row[:] for row in state.cost_map]
+
+    _reset_solver(config, state, "A*", preserve_cost_map=True)
+
+    assert state.algorithm_name == "A*"
+    assert state.cost_map == original_cost_map
+
+
+def test_refresh_edited_maze_syncs_current_snapshot_and_clears_results(pygame_ready):
+    config = AppConfig(rows=21, cols=21)
+    state = _create_state(config, "BFS")
+    state.comparison_results["BFS"] = RunStats(
+        visited_count=10,
+        path_length=8,
+        step_count=10,
+        optimal=True,
+        cost=8,
+    )
+    _reset_maze(config, state, preserve_comparison=True)
+    state.comparison_results["A*"] = RunStats(
+        visited_count=9,
+        path_length=8,
+        step_count=9,
+        optimal=True,
+        cost=8,
+    )
+    current_snapshot = state.maze_history[state.maze_index]
+    edited_cell = (2, 2)
+    state.grid[edited_cell[0]][edited_cell[1]] = 0 if state.grid[edited_cell[0]][edited_cell[1]] == 1 else 1
+    state.start = (1, 2)
+    state.goal = (config.rows - 2, config.cols - 3)
+    if state.cost_map is not None:
+        state.cost_map[1][2] = 5
+
+    _refresh_edited_maze(config, state)
+
+    assert state.comparison_results == {}
+    assert current_snapshot.comparison_results == {}
+    assert current_snapshot.grid == state.grid
+    assert current_snapshot.start == state.start
+    assert current_snapshot.goal == state.goal
+    if state.cost_map is not None:
+        assert current_snapshot.cost_map == state.cost_map
+
+
+def test_reset_maze_clears_edit_history_for_new_current_maze(pygame_ready):
+    config = AppConfig(rows=21, cols=21)
+    state = _create_state(config, "BFS")
+    state.edit_state.edit_history.append(object())
+
+    _reset_maze(config, state, preserve_comparison=False)
+
+    assert state.edit_state.edit_history == []
+    assert state.maze_index == len(state.maze_history) - 1
+
+
+def test_apply_size_preset_rebuilds_grid_to_match_config(pygame_ready):
+    config = AppConfig(rows=31, cols=31)
+    state = _create_state(config, "BFS")
+
+    _apply_size_preset(config, state, SIZE_OPTIONS[0])
+
+    assert len(state.grid) == config.rows == 21
+    assert len(state.grid[0]) == config.cols == 21
+    assert state.start == (1, 1)
+    assert state.goal == (config.rows - 2, config.cols - 2)
+    if state.cost_map is not None:
+        assert len(state.cost_map) == config.rows
+        assert len(state.cost_map[0]) == config.cols
+
+
+def test_navigate_history_clears_edit_history_and_restores_snapshot(pygame_ready):
+    config = AppConfig(rows=21, cols=21)
+    state = _create_state(config, "BFS")
+    state.comparison_results["BFS"] = RunStats(
+        visited_count=12,
+        path_length=8,
+        step_count=12,
+        optimal=True,
+        cost=8,
+    )
+    _reset_maze(config, state, preserve_comparison=True)
+    newer_snapshot = state.maze_history[state.maze_index]
+    state.edit_state.edit_history.append(object())
+
+    _navigate_history(config, state, -1)
+
+    assert state.edit_state.edit_history == []
+    assert state.grid == state.maze_history[state.maze_index].grid
+    assert state.grid != newer_snapshot.grid
+
+
 def test_empty_step_state_has_expected_defaults():
     start = (1, 1)
     state = _empty_step_state(start)
@@ -146,6 +247,17 @@ def test_set_help_visible_pauses_and_restores_state(pygame_ready):
     _set_help_visible(state, False)
     assert state.help_visible is False
     assert state.paused is False
+
+
+def test_e_key_requests_edit_mode(pygame_ready):
+    config = AppConfig(rows=21, cols=21)
+    state = _create_state(config, "BFS")
+    event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_e, unicode="e")
+    next_mode = _handle_keydown(event, config, state)
+    assert next_mode == "edit"
+    assert state.paused is True
+    assert state.step_hold is False
+    assert state.finished is False
 
 
 def test_create_state_and_step_solver_update_runtime_state(pygame_ready):

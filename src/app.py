@@ -20,19 +20,34 @@ from algorithms import (
     solve_greedy_best_first,
     solve_weighted_a_star,
 )
+from edit import (
+    EditState,
+    EditTool,
+    handle_edit_click,
+    handle_edit_drag,
+    handle_edit_motion,
+    undo_last_edit,
+)
 from config import (
     ALGORITHM_NAMES,
     COMPLEXITY_OPTIONS,
     HELP_LINES,
     MAZE_OPTIONS,
     SIZE_OPTIONS,
+    ZOOM_MAX,
+    ZOOM_MIN,
+    ZOOM_STEP,
     AppConfig,
+    cycle_theme,
+    get_theme,
+    set_theme,
 )
 from menu import build_algo_buttons, build_menu_buttons, handle_menu_click
 from render import (
     build_base_surface,
     build_menu_background,
     draw_algo_menu,
+    draw_edit_view,
     draw_menu,
     draw_run_view,
     load_font,
@@ -97,6 +112,214 @@ class AppState:
     status_message: str = ""
     status_message_time: int = 0
     help_scroll: int = 0
+    edit_state: EditState = field(default_factory=EditState)
+    visit_time: dict[Point, int] = field(default_factory=dict)
+    path_reveal_start: int | None = None
+    pan_x: int = 0
+    pan_y: int = 0
+    zoom: float = 1.0
+
+
+def _dispatch_menu_event(
+    event: pygame.event.Event,
+    config: AppConfig,
+    app: AppState,
+    menu_buttons: list,
+    algo_buttons: list,
+    screen: pygame.Surface,
+    menu_background: pygame.Surface,
+    size_index: int,
+    maze_index: int,
+    complexity_custom_label: str | None,
+    show_help: bool,
+    title_font: pygame.font.Font,
+    font: pygame.font.Font,
+    small_font: pygame.font.Font,
+) -> tuple[str, int, int, int, str | None, bool, pygame.Surface, list, list, pygame.Surface, pygame.font.Font, pygame.font.Font, pygame.font.Font]:
+    """Dispatch a single event while the FSM is in ``"menu"`` mode.
+
+    Returns the updated local state values for the caller to destructure.
+    A fresh interactive state is returned every call so the caller never
+    holds stale references.
+    """
+    if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE and show_help:
+        show_help = False
+    if show_help and event.type == pygame.KEYDOWN and event.key == pygame.K_DOWN:
+        app.help_scroll += 1
+    elif show_help and event.type == pygame.KEYDOWN and event.key == pygame.K_UP:
+        app.help_scroll -= 1
+    elif show_help and event.type == pygame.MOUSEWHEEL:
+        app.help_scroll -= event.y
+    elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+        action = handle_menu_click(event.pos, menu_buttons, show_help)
+        if action == "help":
+            show_help = True
+        elif action == "size":
+            size_index = (size_index + 1) % len(SIZE_OPTIONS)
+            _apply_size_preset(config, app, SIZE_OPTIONS[size_index])
+            screen, menu_buttons, menu_background = _resize_window(config)
+            algo_buttons = build_algo_buttons(screen.get_width(), screen.get_height(), ALGORITHM_NAMES)
+            title_font, font, small_font = _build_fonts(config)
+        elif action == "complexity":
+            complexity_custom_label = _cycle_complexity(config, COMPLEXITY_OPTIONS, complexity_custom_label)
+        elif action == "maze":
+            maze_index = (maze_index + 1) % len(MAZE_OPTIONS)
+            complexity_custom_label = _apply_maze_option(config, MAZE_OPTIONS[maze_index])
+        elif action == "algo":
+            show_help = False
+            return ("algo", size_index, maze_index, maze_index, complexity_custom_label, show_help, screen, menu_buttons, algo_buttons, menu_background, title_font, font, small_font)
+        elif action == "terrain":
+            config.terrain_mode = not config.terrain_mode
+        elif action == "theme":
+            theme = cycle_theme(config.theme_name)
+            config.theme_name = theme.name
+            menu_background = build_menu_background(screen.get_width(), screen.get_height())
+        elif action == "new_maze":
+            show_help = False
+            config.step_interval_ms = config.default_step_ms
+            _reset_maze(config, app, preserve_comparison=False)
+        elif action == "edit":
+            show_help = False
+            config.step_interval_ms = config.default_step_ms
+            app.paused = True
+            app.step_hold = False
+            app.finished = False
+            return ("edit", size_index, maze_index, maze_index, complexity_custom_label, show_help, screen, menu_buttons, algo_buttons, menu_background, title_font, font, small_font)
+        elif action == "start":
+            show_help = False
+            config.step_interval_ms = config.default_step_ms
+            _reset_solver(config, app, app.algorithm_name, preserve_cost_map=app.cost_map is not None)
+            return ("run", size_index, maze_index, maze_index, complexity_custom_label, show_help, screen, menu_buttons, algo_buttons, menu_background, title_font, font, small_font)
+    return ("menu", size_index, maze_index, maze_index, complexity_custom_label, show_help, screen, menu_buttons, algo_buttons, menu_background, title_font, font, small_font)
+
+
+def _dispatch_algo_event(
+    event: pygame.event.Event,
+    config: AppConfig,
+    app: AppState,
+    algo_buttons: list,
+) -> str | None:
+    """Dispatch a single event while the FSM is in ``"algo"`` mode.
+
+    Returns the next mode name (``"menu"`` or ``None`` to stay).
+    """
+    if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+        return "menu"
+    if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+        action = handle_menu_click(event.pos, algo_buttons, False)
+        if action == "back":
+            return "menu"
+        elif action == "w_minus":
+            _adjust_weight(config, -config.weighted_step)
+        elif action == "w_plus":
+            _adjust_weight(config, config.weighted_step)
+        elif action:
+            app.algorithm_name = action
+    return None
+
+
+def _dispatch_edit_event(
+    event: pygame.event.Event,
+    config: AppConfig,
+    app: AppState,
+) -> str | None:
+    """Dispatch a single event while the FSM is in ``"edit"`` mode.
+
+    Returns ``"menu"``, ``"run"``, or ``None`` to stay in edit.
+    """
+    if event.type == pygame.MOUSEMOTION:
+        if handle_edit_drag(event.pos, app.edit_state, config, app):
+            _refresh_edited_maze(config, app)
+        else:
+            handle_edit_motion(event.pos, app.edit_state, config)
+    elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+        app.edit_state.is_dragging = True
+        app.edit_state.last_drag_cell = None
+        if handle_edit_click(event.pos, app.edit_state, config, app):
+            _refresh_edited_maze(config, app)
+    elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+        app.edit_state.is_dragging = False
+        app.edit_state.last_drag_cell = None
+    elif event.type == pygame.KEYDOWN:
+        if event.key == pygame.K_ESCAPE:
+            app.edit_state.is_dragging = False
+            app.edit_state.last_drag_cell = None
+            return "menu"
+        elif event.key == pygame.K_r:
+            _reset_solver(config, app, app.algorithm_name, preserve_cost_map=app.cost_map is not None)
+            return "run"
+        elif event.key == pygame.K_d:
+            app.edit_state.tool = EditTool.DRAW_WALL
+        elif event.key == pygame.K_s:
+            app.edit_state.tool = EditTool.PLACE_START
+        elif event.key == pygame.K_g:
+            app.edit_state.tool = EditTool.PLACE_GOAL
+        elif event.key == pygame.K_t:
+            app.edit_state.tool = EditTool.PAINT_TERRAIN
+        elif event.key == pygame.K_i:
+            app.edit_state.tool = EditTool.INSPECT
+        elif event.key == pygame.K_u:
+            theme = cycle_theme(config.theme_name)
+            config.theme_name = theme.name
+            _refresh_edited_maze(config, app)
+        elif event.key == pygame.K_z and pygame.key.get_mods() & pygame.KMOD_CTRL:
+            if undo_last_edit(app, app.edit_state):
+                _refresh_edited_maze(config, app)
+    return None
+
+
+def _dispatch_run_event(
+    event: pygame.event.Event,
+    config: AppConfig,
+    app: AppState,
+    show_help: bool,
+) -> tuple[str | None, bool]:
+    """Dispatch a single event while the FSM is in ``"run"`` mode.
+
+    Returns ``(next_mode, show_help)`` where *next_mode* may be ``"menu"``
+    (Esc), ``"edit"`` (E key), or ``None`` to stay.
+    """
+    if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+        if app.help_visible:
+            _set_help_visible(app, False)
+            return (None, show_help)
+        else:
+            app.paused = True
+            app.step_hold = False
+            app.help_visible = False
+            return ("menu", False)
+    elif event.type == pygame.KEYDOWN and event.key == pygame.K_h:
+        _set_help_visible(app, not app.help_visible)
+    elif app.help_visible and event.type == pygame.KEYDOWN and event.key == pygame.K_DOWN:
+        app.help_scroll += 1
+    elif app.help_visible and event.type == pygame.KEYDOWN and event.key == pygame.K_UP:
+        app.help_scroll -= 1
+    elif app.help_visible and event.type == pygame.MOUSEWHEEL:
+        app.help_scroll -= event.y
+    elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 3 and not app.help_visible:
+        # Right-click / middle-click: start pan
+        app.dragging = True
+        app.pan_origin = event.pos
+        return (None, show_help)
+    elif event.type == pygame.MOUSEBUTTONUP and event.button == 3 and not app.help_visible:
+        app.dragging = False
+        return (None, show_help)
+    elif event.type == pygame.MOUSEMOTION and getattr(app, "dragging", False):
+        mx, my = event.pos
+        ox, oy = app.pan_origin
+        app.pan_origin = event.pos
+        app.pan_x += mx - ox
+        app.pan_y += my - oy
+        return (None, show_help)
+    elif event.type == pygame.MOUSEWHEEL and not app.help_visible:
+        app.zoom = max(ZOOM_MIN, min(ZOOM_MAX, app.zoom + event.y * ZOOM_STEP))
+        return (None, show_help)
+    elif event.type == pygame.KEYUP and event.key == pygame.K_n:
+        app.step_hold = False
+    elif event.type == pygame.KEYDOWN and not app.help_visible:
+        next_mode = _handle_keydown(event, config, app)
+        return (next_mode, show_help)
+    return (None, show_help)
 
 
 def run_app() -> None:
@@ -115,6 +338,7 @@ def run_app() -> None:
     """
     pygame.init()
     config = AppConfig()
+    set_theme(config.theme_name)
     size_index = 1
     maze_index = 0
     complexity_custom_label: str | None = None
@@ -143,76 +367,43 @@ def run_app() -> None:
                 continue
 
             if mode == "menu":
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE and show_help:
-                    show_help = False
-                if show_help and event.type == pygame.KEYDOWN and event.key == pygame.K_DOWN:
-                    app.help_scroll += 1
-                elif show_help and event.type == pygame.KEYDOWN and event.key == pygame.K_UP:
-                    app.help_scroll -= 1
-                elif show_help and event.type == pygame.MOUSEWHEEL:
-                    app.help_scroll -= event.y
-                elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    action = handle_menu_click(event.pos, menu_buttons, show_help)
-                    if action == "help":
-                        show_help = True
-                    elif action == "size":
-                        size_index = (size_index + 1) % len(SIZE_OPTIONS)
-                        _apply_size_option(config, SIZE_OPTIONS[size_index])
-                        screen, menu_buttons, menu_background = _resize_window(config)
-                        algo_buttons = build_algo_buttons(screen.get_width(), screen.get_height(), ALGORITHM_NAMES)
-                        title_font, font, small_font = _build_fonts(config)
-                    elif action == "complexity":
-                        complexity_custom_label = _cycle_complexity(config, COMPLEXITY_OPTIONS, complexity_custom_label)
-                    elif action == "maze":
-                        maze_index = (maze_index + 1) % len(MAZE_OPTIONS)
-                        complexity_custom_label = _apply_maze_option(config, MAZE_OPTIONS[maze_index])
-                    elif action == "algo":
-                        show_help = False
-                        mode = "algo"
-                    elif action == "terrain":
-                        config.terrain_mode = not config.terrain_mode
-                    elif action == "start":
-                        show_help = False
-                        mode = "run"
-                        config.step_interval_ms = config.default_step_ms
-                        _reset_maze(config, app, preserve_comparison=False)
+                result = _dispatch_menu_event(
+                    event, config, app, menu_buttons, algo_buttons,
+                    screen, menu_background, size_index, maze_index,
+                    complexity_custom_label, show_help,
+                    title_font, font, small_font,
+                )
+                next_mode = result[0]
+                if next_mode != "menu":
+                    mode = next_mode
+                size_index = result[1]
+                maze_index = result[2]
+                complexity_custom_label = result[4]
+                show_help = result[5]
+                screen = result[6]
+                menu_buttons = result[7]
+                algo_buttons = result[8]
+                menu_background = result[9]
+                title_font = result[10]
+                font = result[11]
+                small_font = result[12]
 
             elif mode == "algo":
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                next_mode = _dispatch_algo_event(event, config, app, algo_buttons)
+                if next_mode == "menu":
                     mode = "menu"
-                if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    action = handle_menu_click(event.pos, algo_buttons, False)
-                    if action == "back":
-                        mode = "menu"
-                    elif action == "w_minus":
-                        _adjust_weight(config, -config.weighted_step)
-                    elif action == "w_plus":
-                        _adjust_weight(config, config.weighted_step)
-                    elif action:
-                        app.algorithm_name = action
+                    show_help = False
+
+            elif mode == "edit":
+                next_mode = _dispatch_edit_event(event, config, app)
+                if next_mode in ("menu", "run"):
+                    mode = next_mode
+                    show_help = False
 
             else:
-                if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                    if app.help_visible:
-                        _set_help_visible(app, False)
-                    else:
-                        mode = "menu"
-                        show_help = False
-                        app.paused = True
-                        app.step_hold = False
-                        app.help_visible = False
-                elif event.type == pygame.KEYDOWN and event.key == pygame.K_h:
-                    _set_help_visible(app, not app.help_visible)
-                elif app.help_visible and event.type == pygame.KEYDOWN and event.key == pygame.K_DOWN:
-                    app.help_scroll += 1
-                elif app.help_visible and event.type == pygame.KEYDOWN and event.key == pygame.K_UP:
-                    app.help_scroll -= 1
-                elif app.help_visible and event.type == pygame.MOUSEWHEEL:
-                    app.help_scroll -= event.y
-                elif event.type == pygame.KEYUP and event.key == pygame.K_n:
-                    app.step_hold = False
-                elif event.type == pygame.KEYDOWN and not app.help_visible:
-                    _handle_keydown(event, config, app)
+                next_mode, show_help = _dispatch_run_event(event, config, app, show_help)
+                if next_mode:
+                    mode = next_mode
 
         if mode == "run":
             if app.paused and app.step_hold and not app.finished:
@@ -236,6 +427,8 @@ def run_app() -> None:
                 app.algorithm_name,
                 config.weighted_a_star_w,
             )
+        elif mode == "edit":
+            draw_edit_view(screen, title_font, font, small_font, config, app)
         else:
             complexity_label = _complexity_label(config.loop_chance, COMPLEXITY_OPTIONS)
             terrain_label = "Terrain: ON (weighted)" if config.terrain_mode else "Terrain: OFF"
@@ -265,7 +458,9 @@ def _create_state(config: AppConfig, algorithm_name: str) -> AppState:
     """Allocate a fresh :class:`AppState` with a new maze and solver.
 
     Generates the maze, builds the optional cost map, creates the solver
-    iterator, and pre-renders the static base surface.
+    iterator, pre-renders the static base surface, and seeds the current
+    maze-history snapshot so all later mode switches operate on one source
+    of truth.
     """
     grid = generate_maze(
         config.rows,
@@ -281,7 +476,7 @@ def _create_state(config: AppConfig, algorithm_name: str) -> AppState:
     solver = _make_solver(algorithm_name, grid, start, goal, config, cost_map)
     last_state = _empty_step_state(start)
     base_surface = build_base_surface(config, grid, cost_map)
-    return AppState(
+    app = AppState(
         grid=grid,
         start=start,
         goal=goal,
@@ -292,9 +487,51 @@ def _create_state(config: AppConfig, algorithm_name: str) -> AppState:
         last_step_time=pygame.time.get_ticks(),
         cost_map=cost_map,
     )
+    _sync_current_snapshot(config, app)
+    return app
 
 
-def _handle_keydown(event: pygame.event.Event, config: AppConfig, app: AppState) -> None:
+def _copy_cost_map(cost_map: CostMap | None) -> CostMap | None:
+    if cost_map is None:
+        return None
+    return [row[:] for row in cost_map]
+
+
+def _clear_edit_history(app: AppState) -> None:
+    app.edit_state.edit_history.clear()
+    app.edit_state.hover_cell = None
+    app.edit_state.is_dragging = False
+    app.edit_state.last_drag_cell = None
+
+
+def _sync_current_snapshot(config: AppConfig, app: AppState) -> None:
+    comparison_results = app.comparison_results
+    if 0 <= app.maze_index < len(app.maze_history):
+        snapshot = app.maze_history[app.maze_index]
+        snapshot.grid = [row[:] for row in app.grid]
+        snapshot.start = app.start
+        snapshot.goal = app.goal
+        snapshot.maze_method = config.maze_method
+        snapshot.algorithm_name = app.algorithm_name
+        snapshot.cost_map = _copy_cost_map(app.cost_map)
+        if snapshot.comparison_results is not comparison_results:
+            snapshot.comparison_results = comparison_results
+    else:
+        snapshot = MazeSnapshot(
+            grid=[row[:] for row in app.grid],
+            start=app.start,
+            goal=app.goal,
+            maze_method=config.maze_method,
+            algorithm_name=app.algorithm_name,
+            comparison_results=comparison_results,
+            cost_map=_copy_cost_map(app.cost_map),
+        )
+        app.maze_history = [snapshot]
+        app.maze_index = 0
+    app.comparison_results = snapshot.comparison_results
+
+
+def _handle_keydown(event: pygame.event.Event, config: AppConfig, app: AppState) -> str | None:
     """Dispatch a ``KEYDOWN`` event to the appropriate action.
 
     Supports: Space (pause), N (single-step), +/- (speed), [/] (W adjust),
@@ -304,7 +541,7 @@ def _handle_keydown(event: pygame.event.Event, config: AppConfig, app: AppState)
     key = event.key
     if key == pygame.K_SPACE:
         app.paused = not app.paused
-        return
+        return None
 
     if key == pygame.K_n:
         if not app.finished:
@@ -326,17 +563,17 @@ def _handle_keydown(event: pygame.event.Event, config: AppConfig, app: AppState)
     if key == pygame.K_LEFTBRACKET:
         _adjust_weight(config, -config.weighted_step)
         if app.algorithm_name == "Weighted A*":
-            _reset_solver(config, app, app.algorithm_name)
+            _reset_solver(config, app, app.algorithm_name, preserve_cost_map=app.cost_map is not None)
         return
 
     if key == pygame.K_RIGHTBRACKET:
         _adjust_weight(config, config.weighted_step)
         if app.algorithm_name == "Weighted A*":
-            _reset_solver(config, app, app.algorithm_name)
+            _reset_solver(config, app, app.algorithm_name, preserve_cost_map=app.cost_map is not None)
         return
 
     if key == pygame.K_r:
-        _reset_solver(config, app, app.algorithm_name)
+        _reset_solver(config, app, app.algorithm_name, preserve_cost_map=app.cost_map is not None)
         return
 
     if key == pygame.K_t:
@@ -348,28 +585,41 @@ def _handle_keydown(event: pygame.event.Event, config: AppConfig, app: AppState)
         app.show_comparison = not app.show_comparison
         return
 
+    if key == pygame.K_e:
+        app.paused = True
+        app.step_hold = False
+        app.finished = False
+        return "edit"
+
+    if key == pygame.K_u:
+        theme = cycle_theme(config.theme_name)
+        config.theme_name = theme.name
+        app.base_surface = build_base_surface(config, app.grid, app.cost_map)
+        _convert_base_surface(app)
+        return
+
     if key == pygame.K_1:
-        _reset_solver(config, app, "BFS")
+        _reset_solver(config, app, "BFS", preserve_cost_map=app.cost_map is not None)
         return
 
     if key == pygame.K_2:
-        _reset_solver(config, app, "Dijkstra")
+        _reset_solver(config, app, "Dijkstra", preserve_cost_map=app.cost_map is not None)
         return
 
     if key == pygame.K_3:
-        _reset_solver(config, app, "A*")
+        _reset_solver(config, app, "A*", preserve_cost_map=app.cost_map is not None)
         return
 
     if key == pygame.K_4:
-        _reset_solver(config, app, "Bi-BFS")
+        _reset_solver(config, app, "Bi-BFS", preserve_cost_map=app.cost_map is not None)
         return
 
     if key == pygame.K_5:
-        _reset_solver(config, app, "Greedy")
+        _reset_solver(config, app, "Greedy", preserve_cost_map=app.cost_map is not None)
         return
 
     if key == pygame.K_6:
-        _reset_solver(config, app, "Weighted A*")
+        _reset_solver(config, app, "Weighted A*", preserve_cost_map=app.cost_map is not None)
         return
 
     if key == pygame.K_m:
@@ -395,14 +645,19 @@ def _handle_keydown(event: pygame.event.Event, config: AppConfig, app: AppState)
             app.goal = (len(grid) - 2, len(grid[0]) - 2)
             app.grid[app.start[0]][app.start[1]] = 1
             app.grid[app.goal[0]][app.goal[1]] = 1
+            # sync config logical dimensions to the imported grid
+            config.rows = len(grid)
+            config.cols = len(grid[0])
             app.cost_map = _build_cost_map(config, app.grid)
             app.base_surface = build_base_surface(config, app.grid, app.cost_map)
             _convert_base_surface(app)
-            app.comparison_results.clear()
+            app.comparison_results = {}
             app.maze_history.clear()
             app.maze_index = -1
+            _clear_edit_history(app)
+            _sync_current_snapshot(config, app)
             app.show_comparison = True
-            _reset_solver(config, app, app.algorithm_name)
+            _reset_solver(config, app, app.algorithm_name, preserve_cost_map=app.cost_map is not None)
             app.status_message = "Imported maze_import.txt"
             app.status_message_time = pygame.time.get_ticks()
         except (FileNotFoundError, ValueError) as exc:
@@ -411,7 +666,27 @@ def _handle_keydown(event: pygame.event.Event, config: AppConfig, app: AppState)
         return
 
 
-def _reset_solver(config: AppConfig, app: AppState, algorithm_name: str) -> None:
+def _refresh_edited_maze(config: AppConfig, app: AppState) -> None:
+    app.base_surface = build_base_surface(config, app.grid, app.cost_map)
+    _convert_base_surface(app)
+    app.comparison_results.clear()
+    _sync_current_snapshot(config, app)
+    app.last_state = _empty_step_state(app.start)
+    app.finished = False
+    app.paused = True
+    app.step_hold = False
+    app.finished_time = None
+    app.status_message = "Edited maze updated"
+    app.status_message_time = pygame.time.get_ticks()
+
+
+
+def _reset_solver(
+    config: AppConfig,
+    app: AppState,
+    algorithm_name: str,
+    preserve_cost_map: bool = False,
+) -> None:
     """Rebuild the solver iterator for *algorithm_name* on the current maze.
 
     Resets all runtime state (visit index, pause, finished flags) without
@@ -419,7 +694,10 @@ def _reset_solver(config: AppConfig, app: AppState, algorithm_name: str) -> None
     reflect the current terrain setting.
     """
     app.algorithm_name = algorithm_name
-    app.cost_map = _build_cost_map(config, app.grid)
+    if not preserve_cost_map:
+        app.cost_map = _build_cost_map(config, app.grid)
+    elif app.cost_map is None and config.terrain_mode:
+        app.cost_map = _build_cost_map(config, app.grid)
     app.base_surface = build_base_surface(config, app.grid, app.cost_map)
     _convert_base_surface(app)
     app.solver = _make_solver(algorithm_name, app.grid, app.start, app.goal, config, app.cost_map)
@@ -445,18 +723,10 @@ def _reset_maze(config: AppConfig, app: AppState, preserve_comparison: bool) -> 
     if not preserve_comparison:
         app.maze_history.clear()
         app.maze_index = -1
-    elif app.maze_index < 0 and app.comparison_results:
-        old = MazeSnapshot(
-            grid=[row[:] for row in app.grid],
-            start=app.start,
-            goal=app.goal,
-            maze_method=config.maze_method,
-            algorithm_name=app.algorithm_name,
-            comparison_results=dict(app.comparison_results),
-            cost_map=([row[:] for row in app.cost_map] if app.cost_map else None),
-        )
-        app.maze_history.append(old)
-        app.maze_index = len(app.maze_history) - 1
+    elif app.maze_history:
+        _sync_current_snapshot(config, app)
+        if app.maze_index < len(app.maze_history) - 1:
+            app.maze_history = app.maze_history[: app.maze_index + 1]
 
     app.grid = generate_maze(
         config.rows,
@@ -471,21 +741,21 @@ def _reset_maze(config: AppConfig, app: AppState, preserve_comparison: bool) -> 
     app.cost_map = _build_cost_map(config, app.grid)
     app.base_surface = build_base_surface(config, app.grid, app.cost_map)
     _convert_base_surface(app)
-
+    app.comparison_results = {}
     snapshot = MazeSnapshot(
         grid=[row[:] for row in app.grid],
         start=app.start,
         goal=app.goal,
         maze_method=config.maze_method,
         algorithm_name=app.algorithm_name,
-        comparison_results={},
-        cost_map=([row[:] for row in app.cost_map] if app.cost_map else None),
+        comparison_results=app.comparison_results,
+        cost_map=_copy_cost_map(app.cost_map),
     )
     app.maze_history.append(snapshot)
     app.maze_index = len(app.maze_history) - 1
-    app.comparison_results = snapshot.comparison_results
+    _clear_edit_history(app)
     app.show_comparison = True
-    _reset_solver(config, app, app.algorithm_name)
+    _reset_solver(config, app, app.algorithm_name, preserve_cost_map=app.cost_map is not None)
 
 
 def _navigate_history(config: AppConfig, app: AppState, direction: int) -> None:
@@ -498,6 +768,7 @@ def _navigate_history(config: AppConfig, app: AppState, direction: int) -> None:
     target = app.maze_index + direction
     if target < 0 or target >= len(app.maze_history):
         return
+    _sync_current_snapshot(config, app)
     app.maze_index = target
     snapshot = app.maze_history[target]
     app.comparison_results = snapshot.comparison_results
@@ -505,11 +776,10 @@ def _navigate_history(config: AppConfig, app: AppState, direction: int) -> None:
     app.start = snapshot.start
     app.goal = snapshot.goal
     app.algorithm_name = snapshot.algorithm_name
-    app.cost_map = (
-        [row[:] for row in snapshot.cost_map] if snapshot.cost_map else _build_cost_map(config, app.grid)
-    )
+    app.cost_map = _copy_cost_map(snapshot.cost_map)
     app.base_surface = build_base_surface(config, app.grid, app.cost_map)
     _convert_base_surface(app)
+    _clear_edit_history(app)
     app.solver = _make_solver(app.algorithm_name, app.grid, app.start, app.goal, config, app.cost_map)
     app.visit_index = {}
     app.last_state = _empty_step_state(app.start)
@@ -596,6 +866,8 @@ def _step_solver(app: AppState) -> None:
             app.finished_time = pygame.time.get_ticks()
             app.step_hold = False
             app.comparison_results[app.algorithm_name] = state["stats"]
+            if 0 <= app.maze_index < len(app.maze_history):
+                app.maze_history[app.maze_index].comparison_results = app.comparison_results
     except StopIteration:
         app.finished = True
         app.paused = True
@@ -670,7 +942,7 @@ def _apply_size_option(config: AppConfig, option: tuple[str, int, int, int]) -> 
     config.cols = cols
     config.cell_size = cell_size
     if label == "Small":
-        config.top_bar_height = 118
+        config.top_bar_height = 132
         config.side_padding = 34
         config.bottom_padding = 60
         config.title_font_size = 28
@@ -707,6 +979,20 @@ def _apply_size_option(config: AppConfig, option: tuple[str, int, int, int]) -> 
         config.algo_weight_label_nudge_y = 2
 
 
+def _apply_size_preset(config: AppConfig, app: AppState, option: tuple[str, int, int, int]) -> None:
+    """Apply a size preset and rebuild the current maze to match it.
+
+    Size changes alter the logical grid dimensions, so the live maze, terrain,
+    snapshot history, and solver must all be regenerated to keep rendering and
+    pathfinding in sync with ``config.rows`` / ``config.cols``.
+    """
+    _apply_size_option(config, option)
+    app.maze_history.clear()
+    app.maze_index = -1
+    _clear_edit_history(app)
+    _reset_maze(config, app, preserve_comparison=False)
+
+
 def _apply_complexity_option(config: AppConfig, option: tuple[str, float]) -> None:
     """Set *loop_chance* from a complexity preset (Low / Medium / High)."""
     _, loop_chance = option
@@ -732,14 +1018,26 @@ def _apply_maze_option(
     return None
 
 
-def _resize_window(config: AppConfig) -> tuple[pygame.Surface, list[tuple[str, str, pygame.Rect]], pygame.Surface]:
-    """Create or resize the Pygame window to match *config* dimensions.
+def _resize_window(config: AppConfig, *, grid: list[list[int]] | None = None) -> tuple[pygame.Surface, list[tuple[str, str, pygame.Rect]], pygame.Surface]:
+    """Create or resize the Pygame window to match the display dimensions.
+
+    When *grid* is provided its column count is used to derive the board
+    width; otherwise *config.rows* / *config.cols* are used (menu-mode
+    defaults).
 
     Returns the new screen surface, rebuilt menu buttons, and a
-    pre-rendered background.
+    pre-rendered background.  Explicitly reinitialises the display
+    subsystem on every call to prevent orphaned windows on Windows.
     """
-    width = config.cols * config.cell_size + config.side_padding * 2
-    height = config.rows * config.cell_size + config.top_bar_height + config.bottom_padding
+    cols = len(grid[0]) if grid else config.cols
+    rows = len(grid) if grid else config.rows
+    width = cols * config.cell_size + config.side_padding * 2
+    height = rows * config.cell_size + config.top_bar_height + config.bottom_padding
+    try:
+        pygame.display.quit()
+    except Exception:
+        pass
+    pygame.display.init()
     screen = pygame.display.set_mode((width, height))
     pygame.display.set_caption("MazeVisualizer")
     menu_buttons = build_menu_buttons(width, height)
@@ -826,7 +1124,7 @@ def _build_cost_map(config: AppConfig, grid: Grid) -> CostMap | None:
     """
     if not config.terrain_mode:
         return None
-    rng = random.Random(config.terrain_seed + config.rows * 100 + config.cols)
+    rng = random.Random(config.terrain_seed + len(grid) * 100 + len(grid[0]) if grid else 0)
     cost_map: CostMap = []
     for row in grid:
         cost_row: list[int] = []

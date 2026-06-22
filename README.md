@@ -1,9 +1,34 @@
 # MazeVisualizer
 
+[![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Pygame](https://img.shields.io/badge/Pygame-2.5+-2E8B57?style=for-the-badge)](https://www.pygame.org/)
+[![Pytest](https://img.shields.io/badge/Tests-71%2B%20passing-0A7D38?style=for-the-badge)](https://docs.pytest.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+
 [中文说明 / Chinese README](README_zh.md)
 
 > Repository: [https://github.com/janxu2417/MazeVisualizer](https://github.com/janxu2417/MazeVisualizer)
 
+<details>
+  <summary>Table of Contents</summary>
+  <ol>
+    <li><a href="#project-background">Project Background</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#project-structure">Project Structure</a></li>
+    <li><a href="#built-with">Built With</a></li>
+    <li><a href="#core-algorithms">Core Algorithms</a></li>
+    <li><a href="#interactive-editing">Interactive Editing</a></li>
+    <li><a href="#controls">Controls</a></li>
+    <li><a href="#getting-started">Getting Started</a></li>
+    <li><a href="#testing">Testing</a></li>
+    <li><a href="#roadmap">Roadmap</a></li>
+    <li><a href="#license">License</a></li>
+    <li><a href="#acknowledgments">Acknowledgments</a></li>
+    <li><a href="#ai-tool-declaration">AI Tool Declaration</a></li>
+  </ol>
+</details>
+
+<a id="project-background"></a>
 ## Project Background
 
 MazeVisualizer is a Python + Pygame project for visualizing maze generation and pathfinding algorithms step by step.
@@ -26,22 +51,28 @@ It is designed as a Data Structures and Algorithms course project with emphasis 
 
 ## Project Structure
 
-```text
+```
 MazeVisualizer/
 ├── src/
-│   ├── algorithms.py
-│   ├── app.py
-│   ├── config.py
-│   ├── menu.py
-│   ├── render.py
-│   ├── main.py
-│   └── ui.py
-├── docs/
+│   ├── step_data.py       # shared types (Grid, Point, CostMap, RunStats, StepState)
+│   ├── maze_gen.py        # maze generation (DFS / Prim / Kruskal)
+│   ├── pathfinding.py     # 6 pathfinding solvers + shared helpers
+│   ├── algorithms.py      # re-export compatibility layer
+│   ├── app.py             # FSM event loop, state management, edit/run logic
+│   ├── render.py          # all drawing (HUD, legend, menu, overlay, comparison)
+│   ├── config.py          # AppConfig dataclass, presets, colour palette, help text
+│   ├── theme.py           # 4 colour themes (dark / ocean / forest / sunset)
+│   ├── menu.py            # menu button builders + click dispatch
+│   ├── edit.py            # maze editor state machine + undo stack
+│   ├── main.py            # entry point
+│   └── ui.py              # alternative entry point
+├── docs/                  # screenshots
 ├── tests/
-│   ├── test_algorithms.py
-│   ├── test_algorithm_states.py
-│   ├── test_app_logic.py
-│   └── test_render_smoke.py
+│   ├── conftest.py        # shared sys.path configuration
+│   ├── test_algorithms.py # algorithm correctness
+│   ├── test_algorithm_states.py  # StepState interface + bidirectional stats
+│   ├── test_app_logic.py  # FSM logic, import/export, history navigation
+│   └── test_render_smoke.py     # headless rendering smoke tests
 ├── pytest.ini
 ├── README.md
 ├── README_zh.md
@@ -49,6 +80,47 @@ MazeVisualizer/
 └── requirements.txt
 ```
 
+### Data Flow
+
+```
+User Input (mouse / keyboard)
+        │
+        ▼
+  run_app()  ◄──  FSM: menu → algo → edit → run
+        │
+        ├── _dispatch_menu_event()
+        ├── _dispatch_algo_event()
+        ├── _dispatch_edit_event()
+        └── _dispatch_run_event()
+                │
+                ▼
+         _handle_keydown()  ──►  _reset_solver() / _reset_maze()
+                │                       │
+                ▼                       ▼
+         _step_solver()  ◄──  SolverIterator (yield StepState)
+                │
+                ▼
+         draw_run_view()
+           ├── base_surface (static grid + terrain)
+           ├── draw_overlay()  (visited / frontier / path / markers)
+           └── draw_hud()
+                 ├── status, stats, progress
+                 ├── draw_legend()
+                 └── draw_comparison_board()
+```
+
+<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
+
+## Built With
+
+- Python 3.13
+- Pygame 2.5+
+- Pytest 8+
+- Standard-library data structures: `deque`, `heapq`, `dataclasses`, custom Union-Find
+
+<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
+
+<a id="core-algorithms"></a>
 ## Core Algorithms
 
 ### Maze Generation
@@ -104,7 +176,7 @@ This project maps directly to the following topics from the Data Structures & Al
 | **Bidirectional Search** | Bi-BFS | Two simultaneous BFS fronts, meet-point detection |
 | **Union-Find / Disjoint-Set Union** | Kruskal maze generation | Path compression + union by rank, near-O(1) amortised |
 | **Minimum Spanning Tree** | Prim & Kruskal maze gen | Frontier expansion (Prim), random edge processing (Kruskal) |
-| **Algorithm Correctness & Testing** | Full test suite | 60 automated tests covering optimality, edge cases, state interfaces |
+| **Algorithm Correctness & Testing** | Full test suite | 71 automated tests covering optimality, edge cases, state interfaces |
 | **Separation of Concerns** | `src/` module layout | `algorithms.py` (logic) vs `render.py` (GUI) via unified `StepState` frames |
 | **Complexity Analysis** | Every algorithm | Time & space documented in docstrings and README tables |
 
@@ -159,6 +231,25 @@ UI updates in the current version:
 
 This design keeps algorithm logic independent from Pygame rendering.
 
+<a id="interactive-editing"></a>
+## Interactive Editing
+
+The project supports manual maze testing in addition to preset demos. From the main menu, click **Edit Maze** to enter edit mode, then press `R` to run the selected algorithm on the edited maze.
+
+| Tool | Key | Purpose |
+| :-- | :-- | :-- |
+| Draw Wall/Path | `D` | Click or drag to toggle between wall and path |
+| Place Start | `S` | Set a custom start point |
+| Place Goal | `G` | Set a custom goal point |
+| Paint Terrain | `T` | Cycle passable terrain cost through `1 → 3 → 5` |
+| Inspect Cell | `I` | Hover to inspect coordinates, cell type, and search state |
+| Undo | `Ctrl+Z` | Revert the latest edit action |
+
+This makes the project an experiment tool for constructing edge cases, comparing algorithms on custom layouts, and demonstrating why weighted shortest-path algorithms differ from unweighted BFS.
+
+<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
+
+<a id="controls"></a>
 ## Controls
 
 - `Space`: pause / resume
@@ -262,6 +353,36 @@ You can reuse the following short paragraph in the PDF report:
 - `config.py` stores UI constants and runtime options
 
 This modular structure is intended to satisfy the course requirement that logic and GUI should be separated.
+
+<a id="roadmap"></a>
+## Roadmap
+
+- [x] Implement core maze generation and pathfinding algorithms
+- [x] Add weighted terrain and algorithm comparison board
+- [x] Add interactive edit mode for custom test cases
+- [x] Add visual themes and responsive HUD with compact mode
+- [x] Add canvas zoom/pan for large mazes
+- [x] Split codebase into focused modules (step_data, maze_gen, pathfinding)
+- [ ] Add GIF capture for report-ready demonstrations
+- [ ] Add more curated challenge mazes for teaching examples
+
+<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
+
+<a id="license"></a>
+## License
+
+Distributed under the MIT License. See `LICENSE` for more information.
+
+<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
+
+<a id="acknowledgments"></a>
+## Acknowledgments
+
+- Data Structures and Algorithms course project requirements
+- Pygame documentation and community examples
+- Best-README-Template for README organization ideas
+
+<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
 
 ## Docs and Screenshots
 

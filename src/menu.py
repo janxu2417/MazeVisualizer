@@ -10,26 +10,35 @@ ButtonSpec = tuple[str, str, pygame.Rect]
 
 
 def build_menu_buttons(width: int, height: int) -> list[ButtonSpec]:
-    """Create the seven buttons for the main menu screen.
+    """Create the ten buttons for the main menu screen.
 
     Returns a list of ``(label, action, rect)`` tuples for Size, Complexity,
-    Maze, Algorithm, Terrain, Start, and Help.
+    Maze, Algorithm, Terrain, Theme, New Maze, Edit, Start, and Help.
     """
-    button_w = min(340, width - 40)
-    button_h = 40
-    gap = 10
-    total_h = button_h * 7 + gap * 6
-    start_y = max(132, height // 2 - total_h // 2 + 10)
-    x = width // 2 - button_w // 2
+    compact = width <= 520 or height <= 640
+    horizontal_margin = 32 if compact else 40
+    button_w = min(340, width - horizontal_margin)
+    button_h = 34 if compact else 40
+    gap = 6 if compact else 10
     labels = [
         ("Size", "size"),
         ("Complexity", "complexity"),
         ("Maze", "maze"),
         ("Algorithm", "algo"),
         ("Terrain", "terrain"),
+        ("Theme", "theme"),
+        ("New Maze", "new_maze"),
+        ("Edit Maze", "edit"),
         ("Start", "start"),
         ("Help", "help"),
     ]
+    total_h = button_h * len(labels) + gap * (len(labels) - 1)
+    top_clearance = 148 if compact else 132
+    bottom_clearance = 30 if compact else 24
+    centered_y = height // 2 - total_h // 2 + (6 if compact else 10)
+    start_y = max(top_clearance, centered_y)
+    start_y = min(start_y, height - bottom_clearance - total_h)
+    x = width // 2 - button_w // 2
     buttons: list[ButtonSpec] = []
     for idx, (label, action) in enumerate(labels):
         y = start_y + idx * (button_h + gap)

@@ -22,3 +22,4 @@ Thumbs.db
 # Runtime-generated files
 comparison_export.json
 maze_import.txt
+.claude/\ntmp_*.png\n.pytest_tmp*

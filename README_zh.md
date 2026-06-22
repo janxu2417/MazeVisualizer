@@ -1,9 +1,34 @@
 # MazeVisualizer
 
+[![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Pygame](https://img.shields.io/badge/Pygame-2.5+-2E8B57?style=for-the-badge)](https://www.pygame.org/)
+[![Pytest](https://img.shields.io/badge/Tests-71%2B%20passing-0A7D38?style=for-the-badge)](https://docs.pytest.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+
 [English README](README.md)
 
 > 仓库地址：[https://github.com/janxu2417/MazeVisualizer](https://github.com/janxu2417/MazeVisualizer)
 
+<details>
+  <summary>目录</summary>
+  <ol>
+    <li><a href="#项目背景">项目背景</a></li>
+    <li><a href="#主要功能">主要功能</a></li>
+    <li><a href="#项目结构">项目结构</a></li>
+    <li><a href="#技术栈">技术栈</a></li>
+    <li><a href="#核心算法说明">核心算法说明</a></li>
+    <li><a href="#交互式编辑">交互式编辑</a></li>
+    <li><a href="#快捷键">快捷键</a></li>
+    <li><a href="#快速开始">快速开始</a></li>
+    <li><a href="#测试">测试</a></li>
+    <li><a href="#路线图">路线图</a></li>
+    <li><a href="#许可证">许可证</a></li>
+    <li><a href="#致谢">致谢</a></li>
+    <li><a href="#ai-工具声明">AI 工具声明</a></li>
+  </ol>
+</details>
+
+<a id="项目背景"></a>
 ## 项目背景
 
 MazeVisualizer 是一个基于 Python + Pygame 的迷宫生成与路径搜索可视化项目。
@@ -26,22 +51,28 @@ MazeVisualizer 是一个基于 Python + Pygame 的迷宫生成与路径搜索可
 
 ## 项目结构
 
-```text
+```
 MazeVisualizer/
 ├── src/
-│   ├── algorithms.py
-│   ├── app.py
-│   ├── config.py
-│   ├── menu.py
-│   ├── render.py
-│   ├── main.py
-│   └── ui.py
-├── docs/
+│   ├── step_data.py       # 共享类型 (Grid, Point, CostMap, RunStats, StepState)
+│   ├── maze_gen.py        # 迷宫生成 (DFS / Prim / Kruskal)
+│   ├── pathfinding.py     # 6 种路径搜索器 + 共享辅助函数
+│   ├── algorithms.py      # 再导出兼容层
+│   ├── app.py             # FSM 事件循环, 状态管理, 编辑/运行逻辑
+│   ├── render.py          # 所有绘图 (HUD, 图例, 菜单, 覆盖层, 对比面板)
+│   ├── config.py          # AppConfig 数据类, 预设, 调色板, 帮助文本
+│   ├── theme.py           # 4 套颜色主题 (dark / ocean / forest / sunset)
+│   ├── menu.py            # 菜单按钮构建 + 点击分发
+│   ├── edit.py            # 迷宫编辑器状态机 + 撤销栈
+│   ├── main.py            # 入口
+│   └── ui.py              # 备选入口
+├── docs/                  # 截图
 ├── tests/
-│   ├── test_algorithms.py
-│   ├── test_algorithm_states.py
-│   ├── test_app_logic.py
-│   └── test_render_smoke.py
+│   ├── conftest.py        # 共享 sys.path 配置
+│   ├── test_algorithms.py # 算法正确性
+│   ├── test_algorithm_states.py  # StepState 接口 + 双向 BFS 统计
+│   ├── test_app_logic.py  # FSM 逻辑, 导入/导出, 历史导航
+│   └── test_render_smoke.py     # 无头渲染冒烟测试
 ├── pytest.ini
 ├── README.md
 ├── README_zh.md
@@ -49,6 +80,48 @@ MazeVisualizer/
 └── requirements.txt
 ```
 
+### 数据流
+
+```
+用户输入 (鼠标 / 键盘)
+        │
+        ▼
+  run_app()  ◄──  FSM: menu → algo → edit → run
+        │
+        ├── _dispatch_menu_event()
+        ├── _dispatch_algo_event()
+        ├── _dispatch_edit_event()
+        └── _dispatch_run_event()
+                │
+                ▼
+         _handle_keydown()  ──►  _reset_solver() / _reset_maze()
+                │                       │
+                ▼                       ▼
+         _step_solver()  ◄──  SolverIterator (yield StepState)
+                │
+                ▼
+         draw_run_view()
+           ├── base_surface (静态网格 + 地形)
+           ├── draw_overlay()  (已访问 / 前沿 / 路径 / 标记)
+           └── draw_hud()
+                 ├── 状态, 统计, 进度条
+                 ├── draw_legend()
+                 └── draw_comparison_board()
+```
+
+<p align="right">(<a href="#mazevisualizer">返回顶部</a>)</p>
+
+<a id="技术栈"></a>
+## 技术栈
+
+- Python 3.13
+- Pygame 2.5+
+- Pytest 8+
+- Python 标准库：`deque`、`heapq`、`dataclasses`、自实现并查集
+
+<p align="right">(<a href="#mazevisualizer">返回顶部</a>)</p>
+
+<a id="核心算法说明"></a>
 ## 核心算法说明
 
 ### 一、迷宫生成
@@ -154,6 +227,25 @@ MazeVisualizer/
 
 因此 UI 只负责“展示状态”，不再在界面层自己推断算法过程。这种设计更清晰，也更便于测试。
 
+<a id="交互式编辑"></a>
+## 交互式编辑
+
+本项目支持手动构造迷宫来替代预设 demo。从主菜单点击 **Edit Maze** 进入编辑模式，按 `R` 即可在当前自定义迷宫上运行所选算法。
+
+| 工具 | 快捷键 | 功能 |
+| :-- | :-- | :-- |
+| Draw Wall/Path | `D` | 点击或拖拽切换墙与通路 |
+| Place Start | `S` | 设置自定义起点 |
+| Place Goal | `G` | 设置自定义终点 |
+| Paint Terrain | `T` | 对通路循环设置地形代价 `1 → 3 → 5` |
+| Inspect Cell | `I` | 查看单元格坐标、类型、代价和搜索状态 |
+| Undo | `Ctrl+Z` | 撤销最近一次编辑 |
+
+这使项目从固定展示升级为实验平台，用户可以主动构造边界情况。
+
+<p align="right">(<a href="#mazevisualizer">返回顶部</a>)</p>
+
+<a id="快捷键"></a>
 ## 操作说明
 
 - `Space`：暂停 / 继续
@@ -259,6 +351,37 @@ python -m pytest tests/test_render_smoke.py
 
 这种结构满足 GUI 项目“逻辑与界面分离”的课程要求。
 
+<a id="路线图"></a>
+## 路线图
+
+- [x] 实现核心迷宫生成与路径搜索算法
+- [x] 添加加权地形与算法对比面板
+- [x] 添加交互式编辑模式
+- [x] 添加多主题系统与响应式 HUD（含 compact 模式）
+- [x] 添加画布缩放/平移功能
+- [x] 拆分代码库为专注模块（step_data, maze_gen, pathfinding）
+- [ ] 添加 GIF 录制功能
+- [ ] 添加更多预设挑战迷宫
+
+<p align="right">(<a href="#mazevisualizer">返回顶部</a>)</p>
+
+<a id="许可证"></a>
+## 许可证
+
+基于 MIT 许可证发布。详见 `LICENSE` 文件。
+
+<p align="right">(<a href="#mazevisualizer">返回顶部</a>)</p>
+
+<a id="致谢"></a>
+## 致谢
+
+- 数据结构与算法课程大作业要求
+- Pygame 文档与社区示例
+- Best-README-Template 的 README 组织思路
+
+<p align="right">(<a href="#mazevisualizer">返回顶部</a>)</p>
+
+<a id="文档与截图"></a>
 ## 文档与截图
 
 建议在 `docs/` 中保留截图或 GIF，并在 PDF 报告中展示。

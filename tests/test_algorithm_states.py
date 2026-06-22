@@ -1,14 +1,6 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
 import pytest
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-SRC_DIR = PROJECT_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
 
 from algorithms import (  # noqa: E402
     RunStats,
@@ -70,6 +62,14 @@ def test_bidirectional_bfs_exposes_two_side_search_state():
     assert goal in last["visited_from_goal"]
     assert last["visited_from_start"] | last["visited_from_goal"] <= last["visited"]
 
+    # stats assertions for the completed Bi-BFS
+    stats = last["stats"]
+    assert stats.path_length == len(last["path"]) - 1
+    assert stats.cost == stats.path_length  # uniform grid, no terrain
+    assert stats.visited_count == len(last["visited"])
+    assert stats.optimal is True
+    assert stats.step_count >= stats.visited_count // 2  # both sides advance
+
 
 def test_bidirectional_bfs_handles_same_start_and_goal():
     grid = [
@@ -86,6 +86,41 @@ def test_bidirectional_bfs_handles_same_start_and_goal():
     assert state["path"] == [start]
     assert state["meet_point"] == start
     assert state["stats"].path_length == 0
+    assert state["stats"].cost == 0
+    assert state["stats"].visited_count == 1
+    assert state["stats"].step_count == 0
+
+
+def test_bidirectional_bfs_optimal_is_false_with_terrain():
+    grid = [
+        [0, 0, 0, 0, 0],
+        [0, 1, 1, 1, 0],
+        [0, 1, 0, 1, 0],
+        [0, 1, 1, 1, 0],
+        [0, 0, 0, 0, 0],
+    ]
+    start = (1, 1)
+    goal = (3, 3)
+    cost_map = [
+        [0, 0, 0, 0, 0],
+        [0, 1, 5, 1, 0],
+        [0, 1, 0, 5, 0],
+        [0, 1, 1, 1, 0],
+        [0, 0, 0, 0, 0],
+    ]
+
+    states = _collect_states(solve_bidirectional_bfs(grid, start, goal, cost_map=cost_map))
+    last = states[-1]
+    assert last["finished"] is True
+    assert last["stats"].optimal is False
+    # path and cost must be consistent; cost from full path, not half
+    path = last["path"]
+    assert len(path) >= 2
+    assert last["stats"].path_length == len(path) - 1
+    expected_cost = sum(cost_map[r][c] for r, c in path[1:])
+    assert last["stats"].cost == expected_cost
+    assert last["stats"].cost > 0
+    assert last["stats"].visited_count == len(last["visited"])
 
 
 def test_bfs_marks_non_optimal_in_weighted_mode():

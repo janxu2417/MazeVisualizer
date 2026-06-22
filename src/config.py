@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from theme import PRESET_THEMES, Theme, theme_names
+
 Color = tuple[int, int, int]
+
+# Zoom range for interactive canvas scaling (P2-2).
+ZOOM_MIN: float = 0.5
+ZOOM_MAX: float = 2.0
+ZOOM_STEP: float = 0.1
 
 
 @dataclass
@@ -21,21 +28,22 @@ class AppConfig:
     top_bar_height: int = 126
     side_padding: int = 28
     bottom_padding: int = 56
-    default_step_ms: int = 80
-    step_interval_ms: int = 80
-    min_step_ms: int = 30
-    max_step_ms: int = 240
-    step_delta_ms: int = 10
-    loop_chance: float = 0.08
-    maze_method: str = "dfs"
-    weighted_a_star_w: float = 1.5
-    weighted_step: float = 0.1
-    min_weight: float = 1.0
-    max_weight: float = 3.0
-    terrain_mode: bool = False
-    terrain_ratio: float = 0.18
-    terrain_seed: int = 2026
+    default_step_ms: int = 80       # initial solver step interval in ms
+    step_interval_ms: int = 80     # live step interval (adjusted by +/-)
+    min_step_ms: int = 30          # fastest allowed (clamp floor)
+    max_step_ms: int = 240         # slowest allowed (clamp ceiling)
+    step_delta_ms: int = 10        # per +/- press delta
+    loop_chance: float = 0.08      # probability of punching loop-creating walls
+    maze_method: str = "dfs"       # "dfs" | "prim" | "kruskal"
+    weighted_a_star_w: float = 1.5  # weight for Weighted A* (1.0 = Dijkstra)
+    weighted_step: float = 0.1     # per [/] press delta on W
+    min_weight: float = 1.0        # W clamp floor
+    max_weight: float = 3.0        # W clamp ceiling
+    terrain_mode: bool = False     # weighted terrain toggle
+    terrain_ratio: float = 0.18    # fraction of path cells assigned cost ≠ 1
+    terrain_seed: int = 2026       # deterministic seed for terrain RNG
     comparison_enabled: bool = True
+    theme_name: str = "dark"
     title_font_size: int = 30
     body_font_size: int = 18
     small_font_size: int = 14
@@ -49,30 +57,30 @@ class AppConfig:
 
 #: Master colour palette: bg, panel, panel_alt, wall, path, terrain tiers,
 #: search layers, route, start/goal markers, grid lines, and button states.
-COLORS: dict[str, Color] = {
-    "bg": (18, 20, 24),
-    "panel": (28, 32, 38),
-    "panel_alt": (34, 39, 47),
-    "wall": (12, 13, 15),
-    "path": (215, 215, 215),
-    "terrain_light": (216, 225, 221),
-    "terrain_mid": (173, 188, 181),
-    "terrain_heavy": (122, 140, 132),
-    # A/B/C search colors: tune these three entries first when adjusting the visualization.
-    "search_visited": (103, 142, 197),
-    "search_frontier": (244, 191, 117),
-    "search_current": (240, 111, 92),
-    "route": (220, 185, 110),
-    "start": (80, 185, 120),
-    "goal": (205, 90, 90),
-    "grid": (36, 38, 44),
-    "button": (50, 58, 70),
-    "button_hover": (70, 80, 96),
-    "button_active": (88, 108, 138),
-    "button_border": (95, 105, 120),
-    "text": (225, 225, 225),
-    "text_dim": (180, 185, 195),
-}
+_current_theme: Theme = PRESET_THEMES["dark"]
+COLORS: dict[str, Color] = _current_theme.to_dict()
+
+
+def get_theme() -> Theme:
+    return _current_theme
+
+
+def get_theme_names() -> list[str]:
+    return theme_names()
+
+
+def set_theme(name: str) -> Theme:
+    global _current_theme
+    _current_theme = PRESET_THEMES[name]
+    COLORS.clear()
+    COLORS.update(_current_theme.to_dict())
+    return _current_theme
+
+
+def cycle_theme(current_name: str) -> Theme:
+    names = get_theme_names()
+    index = names.index(current_name) if current_name in names else 0
+    return set_theme(names[(index + 1) % len(names)])
 
 
 SIZE_OPTIONS = [
@@ -122,7 +130,8 @@ HELP_LINES = [
     "Left / Right: maze history  (switches comparison board)",
     "F5: export comparison  -->  comparison_export.json",
     "F6: import maze  <--  maze_import.txt",
-    "Scroll wheel: scroll help panel",
+    "Mouse wheel: zoom canvas    Right-drag: pan canvas",
+    "Scroll wheel over help: scroll help panel",
     "",
     "---------  ----------",
     "空格: 暂停 / 继续",
@@ -138,7 +147,8 @@ HELP_LINES = [
     "方向键 左/右: 浏览迷宫历史 (对比板随地图切换)",
     "F5: 导出对比结果  -->  comparison_export.json",
     "F6: 导入迷宫  <--  maze_import.txt",
-    "鼠标滚轮: 滚动帮助面板",
+    "鼠标滚轮: 缩放画布    右键拖拽: 平移画布",
+    "鼠标滚轮在帮助面板上: 滚动帮助面板",
     "",
     "---------  Legend /  图例  ----------",
     "   visited    frontier    current    path    x1    x3    x5",
