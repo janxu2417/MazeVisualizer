@@ -325,7 +325,7 @@ python -m pytest tests/test_render_smoke.py
 - `app.py` 中的非 GUI 逻辑：选项切换、边界夹紧、地形权重生成、solver 创建、暂停 / Help 状态流转
 - 基于 headless Pygame 的渲染 smoke tests，用于验证主要绘制路径不会崩溃
 
-### 报告 / PDF 中可以这样写
+### 自动化测试概括
 
 为了说明测试设计，可以将本项目的自动化测试概括为三层：
 
@@ -336,7 +336,7 @@ python -m pytest tests/test_render_smoke.py
 3. **渲染 smoke tests**
    使用 headless Pygame（`SDL_VIDEODRIVER=dummy`），验证主要界面绘制路径可以正常执行，不会在渲染时崩溃。
 
-### 可直接写进报告的简短说明
+### 简短说明
 
 > 本项目包含自动化测试，用于验证算法正确性、运行时状态流转以及可视化渲染的基本稳定性。  
 > 目前全部测试均可在 Python 3.13 与 `pytest` 环境下通过，为迷宫生成、路径搜索、带权地形和核心可视化流程提供了可复现的正确性证据。

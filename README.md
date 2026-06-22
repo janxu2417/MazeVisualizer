@@ -326,9 +326,7 @@ Automated tests currently cover:
 - app-level non-GUI logic: option application, clamping, terrain cost-map generation, solver creation, pause/help state transitions
 - headless Pygame smoke tests for base-surface creation, menu rendering, HUD/help rendering, and run-view drawing
 
-### Test Design for Report / PDF
-
-For the course report, the testing strategy can be summarized as three layers:
+### Testing Strategy
 
 1. **Algorithm correctness**
    Verifies maze solvability, shortest-path properties, weighted-path behavior, and error handling.
@@ -338,8 +336,6 @@ For the course report, the testing strategy can be summarized as three layers:
    Uses headless Pygame (`SDL_VIDEODRIVER=dummy`) to confirm that the main rendering paths execute without crashing.
 
 ### Suggested report text
-
-You can reuse the following short paragraph in the PDF report:
 
 > The project includes automated tests for algorithm correctness, runtime state transitions, and rendering smoke checks.
 > All current tests pass under Python 3.13 with `pytest`, providing evidence that the maze generation, pathfinding logic, weighted terrain behavior, and core visualization pipeline are stable.
