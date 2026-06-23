@@ -186,6 +186,28 @@ def test_draw_run_view_transforms_overlay_markers_with_zoom(screen_and_fonts):
     assert screen.get_at(original)[:3] != COLORS["start"]
 
 
+def test_draw_run_view_zoom_does_not_leave_unscaled_board_ghost(screen_and_fonts):
+    screen, title_font, font, small_font = screen_and_fonts
+    screen.fill((255, 0, 0))
+    config = AppConfig(rows=21, cols=21, cell_size=20)
+    app_state = _create_state(config, "BFS")
+    app_state.zoom = 1.6
+    app_state.pan_x = 140
+    app_state.pan_y = 60
+    draw_run_view(screen, title_font, font, small_font, config, app_state)
+
+    local_x = config.side_padding + app_state.start[1] * config.cell_size + config.cell_size // 2
+    local_y = config.top_bar_height + app_state.start[0] * config.cell_size + config.cell_size // 2
+    transformed = (
+        app_state.pan_x + int(local_x * app_state.zoom),
+        app_state.pan_y + int(local_y * app_state.zoom),
+    )
+    original = (local_x, local_y)
+
+    assert screen.get_at(transformed)[:3] == COLORS["start"]
+    assert screen.get_at(original)[:3] == COLORS["bg"]
+
+
 def test_compact_stat_row_layout_leaves_room_for_title():
     width = 21 * 20 + 34 * 2
     title_width = 150

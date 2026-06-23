@@ -96,17 +96,19 @@ def draw_run_view(
     zoomed the view (P2-2) the base surface and overlay are transformed
     accordingly.
     """
+    screen.fill(COLORS["bg"])
     zoom = getattr(app, "zoom", 1.0)
     px = getattr(app, "pan_x", 0)
     py = getattr(app, "pan_y", 0)
+    board_surface = app.base_surface.copy()
+    draw_overlay(board_surface, config, app)
     if zoom == 1.0:
-        screen.blit(app.base_surface, (px, py))
+        screen.blit(board_surface, (px, py))
     else:
-        sw = int(app.base_surface.get_width() * zoom)
-        sh = int(app.base_surface.get_height() * zoom)
-        scaled = pygame.transform.smoothscale(app.base_surface, (sw, sh))
+        sw = max(1, int(board_surface.get_width() * zoom))
+        sh = max(1, int(board_surface.get_height() * zoom))
+        scaled = pygame.transform.smoothscale(board_surface, (sw, sh))
         screen.blit(scaled, (px, py))
-    draw_overlay(screen, config, app)
     draw_hud(screen, title_font, font, small_font, config, app)
     if app.help_visible:
         draw_help_panel(screen, font, small_font, app)
@@ -249,13 +251,12 @@ def _edit_hover_color(tool: EditTool) -> tuple[int, int, int]:
 
 
 
-def draw_overlay(screen: pygame.Surface, config: AppConfig, app: object) -> None:
+def draw_overlay(surface: pygame.Surface, config: AppConfig, app: object) -> None:
     """Paint the per-frame search visualization layer.
 
     All overlay elements (visited, frontier, current, path, start/goal) are
-    composited onto a single transparent surface, then scaled and panned
-    according to ``app.zoom`` / ``app.pan_x`` / ``app.pan_y`` so that the
-    overlay stays in sync with the base surface under zoom/pan.
+    composited onto a transparent board-local surface so they can be
+    transformed together with the base maze image under zoom/pan.
     """
     top = config.top_bar_height
     width, height = _board_pixel_size(app.grid, config)
@@ -295,16 +296,7 @@ def draw_overlay(screen: pygame.Surface, config: AppConfig, app: object) -> None
     for label, point in (("start", app.start), ("goal", app.goal)):
         pygame.draw.rect(overlay, (*COLORS[label], 255), _cell_rect(config, top, point))
 
-    zoom = getattr(app, "zoom", 1.0)
-    px = getattr(app, "pan_x", 0)
-    py = getattr(app, "pan_y", 0)
-    if zoom == 1.0:
-        screen.blit(overlay, (px, py))
-    else:
-        sw = max(1, int(width * zoom))
-        sh = max(1, int(height * zoom))
-        scaled = pygame.transform.smoothscale(overlay, (sw, sh))
-        screen.blit(scaled, (px, py))
+    surface.blit(overlay, (0, 0))
 
 
 def _grid_width(config: AppConfig, grid: list[list[int]]) -> int:

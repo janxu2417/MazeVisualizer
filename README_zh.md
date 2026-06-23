@@ -59,15 +59,15 @@ MazeVisualizer 是一个基于 Python + Pygame 的迷宫生成与路径搜索可
 
 ### BFS 运行中
 
-![MazeVisualizer BFS 运行中](https://raw.githubusercontent.com/janxu2417/MazeVisualizer/main/docs/run_searching_BFS.png)
+![MazeVisualizer BFS 运行中|215](https://raw.githubusercontent.com/janxu2417/MazeVisualizer/main/docs/run_searching_BFS.png)
 
 ### 双向 BFS 运行中
 
-![MazeVisualizer 双向 BFS](https://raw.githubusercontent.com/janxu2417/MazeVisualizer/main/docs/run_searching_Bi-BFS.png)
+![MazeVisualizer 双向 BFS|236](https://raw.githubusercontent.com/janxu2417/MazeVisualizer/main/docs/run_searching_Bi-BFS.png)
 
 ### 结束界面与对比面板
 
-![MazeVisualizer 最终结果](https://raw.githubusercontent.com/janxu2417/MazeVisualizer/main/docs/run_finished%26comparison.png)
+![MazeVisualizer 最终结果|199](https://raw.githubusercontent.com/janxu2417/MazeVisualizer/main/docs/run_finished%26comparison.png)
 
 ### 编辑模式
 
