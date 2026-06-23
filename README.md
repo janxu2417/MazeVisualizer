@@ -2,254 +2,259 @@
 
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Pygame](https://img.shields.io/badge/Pygame-2.5+-2E8B57?style=for-the-badge)](https://www.pygame.org/)
-[![Pytest](https://img.shields.io/badge/Tests-71%2B%20passing-0A7D38?style=for-the-badge)](https://docs.pytest.org/)
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+[![Pytest](https://img.shields.io/badge/Tests-78%20passed-0A7D38?style=for-the-badge)](https://docs.pytest.org/)
+[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](https://github.com/janxu2417/MazeVisualizer/blob/main/LICENSE)
 
-[中文说明 / Chinese README](README_zh.md)
+<div align="center">
+  <h3>Maze generation and pathfinding visualization</h3>
+  <p>A Data Structures and Algorithms course project built with Python and Pygame.</p>
+  <p>
+    <a href="https://github.com/janxu2417/MazeVisualizer/blob/main/README_zh.md"><strong>中文说明</strong></a>
+    ·
+    <a href="https://github.com/janxu2417/MazeVisualizer">GitHub Repository</a>
+  </p>
+</div>
 
-> Repository: [https://github.com/janxu2417/MazeVisualizer](https://github.com/janxu2417/MazeVisualizer)
+## Table of Contents
 
-<details>
-  <summary>Table of Contents</summary>
-  <ol>
-    <li><a href="#project-background">Project Background</a></li>
-    <li><a href="#features">Features</a></li>
-    <li><a href="#project-structure">Project Structure</a></li>
-    <li><a href="#built-with">Built With</a></li>
-    <li><a href="#core-algorithms">Core Algorithms</a></li>
-    <li><a href="#interactive-editing">Interactive Editing</a></li>
-    <li><a href="#controls">Controls</a></li>
-    <li><a href="#getting-started">Getting Started</a></li>
-    <li><a href="#testing">Testing</a></li>
-    <li><a href="#roadmap">Roadmap</a></li>
-    <li><a href="#license">License</a></li>
-    <li><a href="#acknowledgments">Acknowledgments</a></li>
-    <li><a href="#ai-tool-declaration">AI Tool Declaration</a></li>
-  </ol>
-</details>
+- [About The Project](#about-the-project)
+- [Built With](#built-with)
+- [Screenshots](#screenshots)
+- [Features](#features)
+- [Project Structure](#project-structure)
+- [Core Algorithms](#core-algorithms)
+- [Comprehensive Complexity Comparison](#comprehensive-complexity-comparison)
+- [Getting Started](#getting-started)
+- [Controls](#controls)
+- [Testing](#testing)
+- [Roadmap](#roadmap)
+- [Reference and Attribution](#reference-and-attribution)
+- [AI Tool Declaration](#ai-tool-declaration)
+- [Contact](#contact)
+- [License](#license)
+- [Acknowledgments](#acknowledgments)
 
-<a id="project-background"></a>
-## Project Background
+## About The Project
 
-MazeVisualizer is a Python + Pygame project for visualizing maze generation and pathfinding algorithms step by step.
-It is designed as a Data Structures and Algorithms course project with emphasis on:
+MazeVisualizer is a Python + Pygame project for visualizing maze generation and pathfinding step by step. It was designed for a Data Structures and Algorithms course assignment, with emphasis on:
 
 - self-implemented maze generation and graph search logic
-- clear separation between algorithm logic and UI rendering
-- visual comparison between different search strategies
-- explainable algorithm behavior rather than black-box library calls
+- explicit visualization of search state, not just final answers
+- direct comparison between unweighted and weighted shortest-path algorithms
+- clear separation between algorithm logic, state management, and rendering
 
-## Features
-
-- Maze generation: DFS backtracking, Prim, Kruskal
-- Pathfinding: BFS, Dijkstra, A*, Bidirectional BFS, Greedy Best-First, Weighted A*
-- Frontier / open-set visualization
-- Bidirectional BFS two-side expansion visualization
-- Weighted terrain mode for cost-sensitive shortest path
-- Runtime stats: path length, visited nodes, search steps, path cost, optimality
-- Comparison board for multiple algorithms on the same maze
-
-## Project Structure
-
-```
-MazeVisualizer/
-├── src/
-│   ├── step_data.py       # shared types (Grid, Point, CostMap, RunStats, StepState)
-│   ├── maze_gen.py        # maze generation (DFS / Prim / Kruskal)
-│   ├── pathfinding.py     # 6 pathfinding solvers + shared helpers
-│   ├── algorithms.py      # re-export compatibility layer
-│   ├── app.py             # FSM event loop, state management, edit/run logic
-│   ├── render.py          # all drawing (HUD, legend, menu, overlay, comparison)
-│   ├── config.py          # AppConfig dataclass, presets, colour palette, help text
-│   ├── theme.py           # 4 colour themes (dark / ocean / forest / sunset)
-│   ├── menu.py            # menu button builders + click dispatch
-│   ├── edit.py            # maze editor state machine + undo stack
-│   ├── main.py            # entry point
-│   └── ui.py              # alternative entry point
-├── docs/                  # screenshots
-├── tests/
-│   ├── conftest.py        # shared sys.path configuration
-│   ├── test_algorithms.py # algorithm correctness
-│   ├── test_algorithm_states.py  # StepState interface + bidirectional stats
-│   ├── test_app_logic.py  # FSM logic, import/export, history navigation
-│   └── test_render_smoke.py     # headless rendering smoke tests
-├── pytest.ini
-├── README.md
-├── README_zh.md
-├── LICENSE
-└── requirements.txt
-```
-
-### Data Flow
-
-```
-User Input (mouse / keyboard)
-        │
-        ▼
-  run_app()  ◄──  FSM: menu → algo → edit → run
-        │
-        ├── _dispatch_menu_event()
-        ├── _dispatch_algo_event()
-        ├── _dispatch_edit_event()
-        └── _dispatch_run_event()
-                │
-                ▼
-         _handle_keydown()  ──►  _reset_solver() / _reset_maze()
-                │                       │
-                ▼                       ▼
-         _step_solver()  ◄──  SolverIterator (yield StepState)
-                │
-                ▼
-         draw_run_view()
-           ├── base_surface (static grid + terrain)
-           ├── draw_overlay()  (visited / frontier / path / markers)
-           └── draw_hud()
-                 ├── status, stats, progress
-                 ├── draw_legend()
-                 └── draw_comparison_board()
-```
-
-<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
+The project is not only a demo player. In its current form, it is an interactive experiment platform: users can generate mazes, switch algorithms, edit layouts, assign terrain costs, inspect cells, compare multiple runs, and export results.
 
 ## Built With
 
-- Python 3.13
-- Pygame 2.5+
-- Pytest 8+
-- Standard-library data structures: `deque`, `heapq`, `dataclasses`, custom Union-Find
+- [Python 3.13](https://www.python.org/)
+- [Pygame 2.5+](https://www.pygame.org/)
+- [Pytest](https://docs.pytest.org/)
 
-<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
+## Screenshots
 
-<a id="core-algorithms"></a>
+### Main Menu
+
+![MazeVisualizer menu](https://raw.githubusercontent.com/janxu2417/MazeVisualizer/main/docs/menu.png)
+
+### BFS Running View
+
+![MazeVisualizer BFS running](https://raw.githubusercontent.com/janxu2417/MazeVisualizer/main/docs/run_searching_BFS.png)
+
+### Bidirectional BFS Running View
+
+![MazeVisualizer bidirectional BFS](https://raw.githubusercontent.com/janxu2417/MazeVisualizer/main/docs/run_searching_Bi-BFS.png)
+
+### Final Result with Comparison Board
+
+![MazeVisualizer final result](https://raw.githubusercontent.com/janxu2417/MazeVisualizer/main/docs/run_finished%26comparison.png)
+
+### Edit Mode
+
+![MazeVisualizer edit mode](https://raw.githubusercontent.com/janxu2417/MazeVisualizer/main/docs/edit_maze_inspect.png)
+
+## Features
+
+- Maze generation with DFS backtracking, Prim-style generation, and Kruskal-style generation
+- Pathfinding with BFS, Dijkstra, A*, Bidirectional BFS, Greedy Best-First Search, and Weighted A*
+- Unified step-by-step visualization through a shared `StepState` interface
+- Weighted terrain mode with cost bands `x1`, `x3`, and `x5`
+- Runtime HUD with path length, visited count, step count, total cost, and status
+- Comparison board for multiple algorithms on the same maze
+- Interactive edit mode with wall drawing, start/goal placement, terrain painting, cell inspection, and undo
+- Maze history navigation across regenerated mazes
+- Canvas zoom and pan for larger layouts
+- JSON export of comparison results and text import of maze grids
+- Multiple visual themes: `dark`, `ocean`, `forest`, `sunset`
+
+## Project Structure
+
+```text
+MazeVisualizer/
+├─ src/
+│  ├─ step_data.py       # shared types: Grid, Point, CostMap, RunStats, StepState
+│  ├─ maze_gen.py        # DFS / Prim / Kruskal maze generation
+│  ├─ pathfinding.py     # 6 pathfinding algorithms
+│  ├─ algorithms.py      # compatibility re-export layer
+│  ├─ app.py             # FSM, event dispatch, solver driving, history, import/export
+│  ├─ render.py          # HUD, help panel, legend, comparison board, edit/run drawing
+│  ├─ edit.py            # edit-mode state machine and undo
+│  ├─ menu.py            # menu layout and click dispatch
+│  ├─ config.py          # runtime configuration, presets, help lines
+│  ├─ theme.py           # visual themes
+│  ├─ main.py            # main entry point
+│  └─ ui.py              # alternative entry point
+├─ docs/                 # screenshots
+├─ tests/                # automated tests
+├─ README.md
+├─ README_zh.md
+├─ LICENSE
+├─ pytest.ini
+└─ requirements.txt
+```
+
 ## Core Algorithms
 
 ### Maze Generation
 
-#### 1. DFS Backtracking
+#### DFS Backtracking
 
-- The maze grid uses `0 = wall`, `1 = path`
-- The algorithm moves in steps of 2 cells to preserve wall layers
-- A stack records the current carving path
-- When no unvisited neighbor exists, it backtracks
+- Uses an explicit stack to maintain the current carving path.
+- Moves by two cells at a time to preserve wall layers.
+- Backtracks when no unvisited neighbor is available.
 
-This creates corridor-like mazes with long passages.
+Course concepts:
 
-#### 2. Prim-based Maze Generation
+- DFS
+- stack
+- backtracking
 
-- Treat each candidate cell as a graph node
-- Maintain a frontier set around the carved region
-- Randomly choose a frontier cell and connect it to the existing tree
+#### Prim-style Maze Generation
 
-This tends to create more local branches and dead ends.
+- Maintains a frontier around the connected carved region.
+- Randomly selects a frontier cell and attaches it to the existing tree.
+- Produces many local branches and dead ends.
 
-#### 3. Kruskal-based Maze Generation
+Course concepts:
 
-- Treat odd-index cells as graph vertices
-- Treat removable walls as candidate edges
-- Use a disjoint-set union structure to connect components without cycles
+- minimum spanning tree intuition
+- frontier expansion
 
-This is a direct application of minimum-spanning-tree style thinking.
+#### Kruskal-style Maze Generation
+
+- Treats passable cells as vertices and removable walls as candidate edges.
+- Uses Union-Find to decide whether two regions are already connected.
+- Avoids cycles while constructing a spanning-tree-style maze.
+
+Course concepts:
+
+- disjoint set union
+- path compression
+- union by rank
+- minimum spanning tree
 
 ### Pathfinding
 
-| Algorithm | Idea | Optimal? | Typical Time | Typical Space | Notes |
-| :-- | :-- | :-- | :-- | :-- | :-- |
-| BFS | layer-by-layer expansion | Yes on unweighted grids | `O(V+E)` | `O(V)` | shortest step count |
-| Dijkstra | greedy shortest path by accumulated cost | Yes with nonnegative weights | `O((V+E)logV)` | `O(V)` | needed for weighted terrain |
-| A* | Dijkstra + heuristic | Yes if heuristic is admissible | usually better than Dijkstra | `O(V)` | uses Manhattan distance |
-| Bi-BFS | expand from both start and goal | Yes on unweighted grids | often less search in practice | `O(V)` | strong teaching value |
-| Greedy Best-First | heuristic only | No | often fast | `O(V)` | may find suboptimal routes |
-| Weighted A* | `f(n)=g(n)+W*h(n)` | Not always | often faster than A* | `O(V)` | trades optimality for speed |
+| Algorithm | Core idea | Optimal? | Notes |
+| :-- | :-- | :-- | :-- |
+| BFS | layer-by-layer expansion with a FIFO queue | Yes on unweighted grids | minimizes step count |
+| Dijkstra | greedy expansion by accumulated cost | Yes with nonnegative weights | needed for weighted terrain |
+| A* | Dijkstra with Manhattan heuristic | Yes with admissible heuristic | usually explores less than Dijkstra |
+| Bidirectional BFS | simultaneous BFS from start and goal | Yes on unweighted grids | strong visual contrast with BFS |
+| Greedy Best-First | heuristic-only expansion | No | often faster but may be suboptimal |
+| Weighted A* | `f(n)=g(n)+W*h(n)` | No in general | trades optimality for speed |
 
 ### Course Knowledge Points Coverage
 
-This project maps directly to the following topics from the Data Structures & Algorithms curriculum:
+| Course topic           | Where applied                             | Implementation detail                           |
+| :--------------------- | :---------------------------------------- | :---------------------------------------------- |
+| DFS / backtracking     | DFS maze generation                       | explicit stack, dead-end backtracking           |
+| BFS                    | BFS, Bidirectional BFS                    | `collections.deque`, layered expansion          |
+| Graph representation   | all solvers                               | implicit grid graph with 4-neighbor adjacency   |
+| Priority queue / heap  | `Dijkstra`, `A*`, `Greedy`, `Weighted A*` | `heapq`                                         |
+| Shortest path          | `Dijkstra`                                | edge relaxation on nonnegative weights          |
+| Heuristic search       | `A*`, `Greedy`, `Weighted A*`             | Manhattan distance                              |
+| Bidirectional search   | Bidirectional BFS                         | two simultaneous frontiers and meet-point merge |
+| Union-Find             | Kruskal maze generation                   | path compression + union by rank                |
+| Minimum spanning tree  | Prim / Kruskal maze generation            | frontier expansion / disjoint-set connectivity  |
+| Separation of concerns | full project structure                    | solver logic separated from rendering and UI    |
 
-| Course Topic | Where Applied | Implementation Detail |
-| :-- | :-- | :-- |
-| **DFS / Backtracking** | DFS maze generation | Explicit stack, 2-cell step carving, backtrack on dead-end |
-| **BFS (FIFO Queue)** | BFS solver, Bi-BFS | `collections.deque`, layer-by-layer expansion |
-| **Graph representation** | All solvers | Implicit grid graph → 4-directional adjacency; no explicit edge list |
-| **Priority Queue / Binary Heap** | Dijkstra, A*, Greedy, Weighted A* | `heapq` with tuples `(priority, ...)` |
-| **Shortest Path (Greedy paradigm)** | Dijkstra | Edge relaxation, non-negative weights, optimality proof |
-| **Heuristic / Informed Search** | A*, Greedy, Weighted A* | Manhattan distance `|dr|+|dc|`, admissible & consistent |
-| **Bidirectional Search** | Bi-BFS | Two simultaneous BFS fronts, meet-point detection |
-| **Union-Find / Disjoint-Set Union** | Kruskal maze generation | Path compression + union by rank, near-O(1) amortised |
-| **Minimum Spanning Tree** | Prim & Kruskal maze gen | Frontier expansion (Prim), random edge processing (Kruskal) |
-| **Algorithm Correctness & Testing** | Full test suite | 71 automated tests covering optimality, edge cases, state interfaces |
-| **Separation of Concerns** | `src/` module layout | `algorithms.py` (logic) vs `render.py` (GUI) via unified `StepState` frames |
-| **Complexity Analysis** | Every algorithm | Time & space documented in docstrings and README tables |
+## Comprehensive Complexity Comparison
 
-### Comprehensive Complexity Comparison
+Let `V` be the number of passable cells, `E` the number of passable-cell adjacencies, `b` the branching factor, and `d` the shortest-path depth. For 4-neighbor grid mazes, degree is bounded, so `E = O(V)`.
 
-| Algorithm | Best Case | Average / Expected | Worst Case | Space | Optimal? | Heuristic? |
-| :-- | :-- | :-- | :-- | :-- | :-- | :-- |
-| DFS Maze Gen | Θ(V) | Θ(V) | Θ(V) | O(V) | — | — |
-| Prim Maze Gen | Θ(V) | Θ(V) | Θ(V) | O(V) | — | — |
-| Kruskal Maze Gen | Θ(V·α(V)) | Θ(V·α(V)) | Θ(V·α(V)) | O(V) | — | — |
-| BFS | Ω(1) | Θ(V+E) | O(V+E) | O(V) | Yes (unweighted) | No |
-| Dijkstra | Ω(1) | Θ((V+E)logV) | O((V+E)logV) | O(V) | Yes (non-neg) | No |
-| A* | Ω(1) | < Dijkstra | O((V+E)logV) | O(V) | Yes (admissible) | Manhattan |
-| Bi-BFS | Ω(1) | O(b^(d/2)) | O(b^d) | O(V) | Yes (unweighted) | No |
-| Greedy Best-First | Ω(1) | often fast | O((V+E)logV) | O(V) | No | Manhattan |
-| Weighted A* | Ω(1) | < A* | O((V+E)logV) | O(V) | ε-admissible | Manhattan |
+| Algorithm               | Typical / expected                          | Worst case          | Space  | Optimal? | Conditions / notes                                          |
+| :---------------------- | :------------------------------------------ | :------------------ | :----- | :------- | :---------------------------------------------------------- |
+| DFS Maze Generation     | `Theta(V)`                                  | `Theta(V)`          | `O(V)` | N/A      | each reachable cell is processed a constant number of times |
+| Prim Maze Generation    | `Theta(V)`                                  | `Theta(V)`          | `O(V)` | N/A      | bounded-degree grid keeps frontier handling linear          |
+| Kruskal Maze Generation | `Theta(V alpha(V))`                         | `Theta(V alpha(V))` | `O(V)` | N/A      | Union-Find with path compression and union by rank          |
+| BFS                     | `Theta(V + E)`                              | `O(V + E)`          | `O(V)` | Yes      | optimal on unweighted or equal-weight graphs                |
+| Dijkstra                | often near `Theta((V + E) log V)`           | `O((V + E) log V)`  | `O(V)` | Yes      | requires nonnegative weights                                |
+| A*                      | input-dependent, often better than Dijkstra | `O((V + E) log V)`  | `O(V)` | Yes      | requires an admissible heuristic                            |
+| Bidirectional BFS       | often `O(b^(d/2))` in tree-like search      | `O(V + E)`          | `O(V)` | Yes      | optimal on unweighted or equal-weight graphs                |
+| Greedy Best-First       | often fast but unstable across inputs       | `O((V + E) log V)`  | `O(V)` | No       | heuristic guidance only                                     |
+| Weighted A*             | often fewer expansions than A*              | `O((V + E) log V)`  | `O(V)` | No       | heuristic inflation with `W > 1`                            |
 
-*V = number of passable cells, E = number of edges between passable cells, b = branching factor, d = shortest path depth, α = inverse Ackermann function.*
+For reader-facing grid-maze interpretation, the main search bounds simplify to:
 
-On a uniform grid, BFS, Dijkstra, and A* often end with the same shortest path length.
-To better demonstrate the difference between unweighted and weighted shortest-path problems, this project adds an optional weighted terrain mode:
+- BFS: `O(V)`
+- Dijkstra: `O(V log V)`
+- A*: `O(V log V)`
+- Bidirectional BFS: `O(V)`
+- Greedy Best-First: `O(V log V)`
+- Weighted A*: `O(V log V)`
 
-- normal road cost = 1
-- medium terrain cost = 3
-- heavy terrain cost = 5
+### Why Weighted Terrain Matters
 
-In this mode:
+On a uniform maze, BFS, Dijkstra, and A* often produce the same shortest path length. Weighted terrain makes the algorithmic differences clearer:
+
+- `x1`: normal path
+- `x3`: medium-cost terrain
+- `x5`: heavy-cost terrain
+
+Then:
 
 - BFS still minimizes step count only
 - Dijkstra minimizes total path cost
-- A* and Weighted A* use both cost and heuristic information
+- A* combines cost and heuristic guidance
+- Weighted A* trades exact optimality for fewer expansions
 
-This makes the algorithm comparison more meaningful for a course project.
+## Getting Started
 
-## Visualization Design
+### Prerequisites
 
-Each solver yields step-by-step state frames. Every frame contains:
+- Python 3.13
+- `pip`
 
-- current node
-- visited set
-- frontier / open set
-- final path
-- runtime stats
-- extra two-side visited sets for Bidirectional BFS
+### Installation
 
-UI updates in the current version:
+1. Clone the repository:
 
-- `visited`, `frontier`, and `current` use stable A/B/C color layers instead of flashing path previews
-- for non-DFS-style algorithms, the path is drawn only after the goal is reached, which avoids flicker at high speed
-- a built-in legend explains search colors and weighted-terrain cost bands
-- Small / Medium / Large presets also adjust outer padding and font sizes for better screen fit
+```bash
+git clone https://github.com/janxu2417/MazeVisualizer.git
+cd MazeVisualizer
+```
 
-This design keeps algorithm logic independent from Pygame rendering.
+2. Install dependencies:
 
-<a id="interactive-editing"></a>
-## Interactive Editing
+```bash
+python -m pip install -r requirements.txt
+```
 
-The project supports manual maze testing in addition to preset demos. From the main menu, click **Edit Maze** to enter edit mode, then press `R` to run the selected algorithm on the edited maze.
+### Run
 
-| Tool | Key | Purpose |
-| :-- | :-- | :-- |
-| Draw Wall/Path | `D` | Click or drag to toggle between wall and path |
-| Place Start | `S` | Set a custom start point |
-| Place Goal | `G` | Set a custom goal point |
-| Paint Terrain | `T` | Cycle passable terrain cost through `1 → 3 → 5` |
-| Inspect Cell | `I` | Hover to inspect coordinates, cell type, and search state |
-| Undo | `Ctrl+Z` | Revert the latest edit action |
+Start the application with:
 
-This makes the project an experiment tool for constructing edge cases, comparing algorithms on custom layouts, and demonstrating why weighted shortest-path algorithms differ from unweighted BFS.
+```bash
+python src/main.py
+```
 
-<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
+Alternative entry point:
 
-<a id="controls"></a>
+```bash
+python src/ui.py
+```
+
 ## Controls
 
 - `Space`: pause / resume
@@ -261,143 +266,110 @@ This makes the project an experiment tool for constructing edge cases, comparing
 - `R`: restart current solver
 - `T`: toggle weighted terrain mode
 - `C`: toggle comparison board
-- `M`: generate a new maze (saves current maze to history)
-- `Left` / `Right`: browse maze history (auto-switches comparison board)
-- `F5`: export comparison results → `comparison_export.json`
-- `F6`: import maze ← `maze_import.txt`
+- `E`: enter edit mode from run view
+- `U`: switch theme
+- `M`: generate a new maze and store the current one in history
+- `Left / Right`: browse maze history
+- `F5`: export comparison results to `comparison_export.json`
+- `F6`: import a maze from `maze_import.txt`
+- `Mouse wheel`: zoom canvas
+- `Right mouse drag`: pan canvas
 - `ESC`: close help panel or return to menu
-- `Mouse wheel`: scroll help panel
 
-## Run
+### Edit Mode Controls
 
-1. Install dependencies
+- `D`: draw wall / path
+- `S`: place start
+- `G`: place goal
+- `T`: paint terrain
+- `I`: inspect cell
+- `Ctrl+Z`: undo
+- `R`: run the edited maze
 
-```bash
-python -m pip install -r requirements.txt
-```
+## Testing
 
-2. Start the program
+### Current Status
 
-```bash
-python src/main.py
-```
+The current test suite contains 78 tests:
 
-You can also run:
+- `tests/test_algorithm_states.py`: 25
+- `tests/test_algorithms.py`: 11
+- `tests/test_app_logic.py`: 26
+- `tests/test_render_smoke.py`: 16
 
-```bash
-python src/ui.py
-```
-
-## Tests
-
-### How to run
-
-Run all tests from the project root:
+Verified command:
 
 ```bash
-python -m pytest
+python -m pytest --basetemp .pytest_tmp_report
 ```
 
-Because `pytest.ini` is included, test discovery is fixed to the `tests/` directory and `test_*.py` files.
+Verified result:
 
-If you only want one test group:
-
-```bash
-python -m pytest tests/test_algorithms.py
-python -m pytest tests/test_algorithm_states.py
-python -m pytest tests/test_app_logic.py
-python -m pytest tests/test_render_smoke.py
+```text
+78 passed in 46.15s
 ```
 
-### Current test coverage
+### What Is Covered
 
-Automated tests currently cover:
-
-- maze size normalization
+- maze size normalization and invalid size handling
 - solvability of DFS / Prim / Kruskal mazes
-- BFS shortest-path validity
-- Dijkstra vs BFS on uniform grids
-- A* vs BFS on uniform grids
+- BFS shortest-path correctness
+- Dijkstra and A* consistency with BFS on uniform grids
 - validity of Greedy and Weighted A* paths
-- weighted terrain shortest-path behavior
-- invalid input handling
-- `StepState` / `RunStats` interface checks
-- Bidirectional BFS meet-point and two-side visited-state checks
-- app-level non-GUI logic: option application, clamping, terrain cost-map generation, solver creation, pause/help state transitions
-- headless Pygame smoke tests for base-surface creation, menu rendering, HUD/help rendering, and run-view drawing
+- weighted terrain behavior
+- `StepState` and `RunStats` interface consistency
+- bidirectional BFS meet-point and dual-front state reporting
+- app-level non-GUI logic: history, edit refresh, import/export, toggles, solver creation
+- headless Pygame smoke tests for menu, HUD, run view, help panel, zoom/pan rendering
 
-### Testing Strategy
+### Note on Test Execution
 
-1. **Algorithm correctness**
-   Verifies maze solvability, shortest-path properties, weighted-path behavior, and error handling.
-2. **State and controller logic**
-   Verifies configuration updates, runtime state transitions, and the unified step-state interface consumed by the UI.
-3. **Rendering smoke tests**
-   Uses headless Pygame (`SDL_VIDEODRIVER=dummy`) to confirm that the main rendering paths execute without crashing.
+In the current environment, using default system temporary directories may trigger permission errors for `tmp_path`-based tests. Running with project-local `--basetemp` avoids that issue and allows the full suite to pass.
 
-### Suggested report text
-
-> The project includes automated tests for algorithm correctness, runtime state transitions, and rendering smoke checks.
-> All current tests pass under Python 3.13 with `pytest`, providing evidence that the maze generation, pathfinding logic, weighted terrain behavior, and core visualization pipeline are stable.
-
-## Engineering Notes
-
-- `algorithms.py` contains all core algorithms and step-state output
-- `app.py` controls state transitions and solver execution
-- `render.py` handles visualization and HUD panels
-- `menu.py` handles menu layout and click dispatch
-- `config.py` stores UI constants and runtime options
-
-This modular structure is intended to satisfy the course requirement that logic and GUI should be separated.
-
-<a id="roadmap"></a>
 ## Roadmap
 
 - [x] Implement core maze generation and pathfinding algorithms
 - [x] Add weighted terrain and algorithm comparison board
-- [x] Add interactive edit mode for custom test cases
-- [x] Add visual themes and responsive HUD with compact mode
-- [x] Add canvas zoom/pan for large mazes
-- [x] Split codebase into focused modules (step_data, maze_gen, pathfinding)
+- [x] Add interactive edit mode
+- [x] Add multiple themes and compact HUD layout
+- [x] Add zoom and pan for larger mazes
+- [x] Split the codebase into focused modules
 - [ ] Add GIF capture for report-ready demonstrations
-- [ ] Add more curated challenge mazes for teaching examples
+- [ ] Add more curated challenge mazes
 
-<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
+## Reference and Attribution
 
-<a id="license"></a>
+Template and documentation reference:
+
+- [Best-README-Template](https://github.com/othneildrew/Best-README-Template)
+
+Project reference sources:
+
+- [Pygame documentation](https://www.pygame.org/docs/)
+
+This project’s core algorithm logic and system organization were implemented and organized by the author. No third-party algorithm library was used as a black-box solver.
+
+## AI Tool Declaration
+
+AI tools were used in the following limited ways:
+
+- scaffolding and polishing parts of the UI structure
+- refactoring suggestions for module organization
+- wording refinement for README and report writing
+
+The maze generation logic, pathfinding logic, state interface design, and final project organization were reviewed and finalized manually by the author.
+
+## Contact
+
+- Author: Xu Qian
+- Repository: [janxu2417/MazeVisualizer](https://github.com/janxu2417/MazeVisualizer)
+
 ## License
 
 Distributed under the MIT License. See `LICENSE` for more information.
 
-<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
-
-<a id="acknowledgments"></a>
 ## Acknowledgments
 
-- Data Structures and Algorithms course project requirements
+- Data Structures and Algorithms course:  [GMyhf/2026spring-cs201](https://github.com/GMyhf/2026spring-cs201)
 - Pygame documentation and community examples
-- Best-README-Template for README organization ideas
-
-<p align="right">(<a href="#mazevisualizer">back to top</a>)</p>
-
-## Docs and Screenshots
-
-Place screenshots or GIFs in `docs/` and reference them in the PDF report.
-
-![MazeVisualizer menu](docs/menu_v2.png)
-![MazeVisualizer running view](docs/run_searching_v2.png)
-![MazeVisualizer result view](docs/run_finished_v2.png)
-
-Recommended report screenshots:
-
-1. start menu
-2. algorithm running view with legend and search-state layers
-3. final statistics panel with comparison board and complete path
-
-## AI Tool Declaration
-
-AI-assisted work:
-
-- GitHub Copilot and Codex were used to help scaffold UI structure, refactor modules, and polish documentation
-- core maze generation and pathfinding logic was reviewed and adjusted manually
-- final algorithm explanation, testing strategy, and course-facing write-up were curated by the author
+- Best-README-Template for documentation structure inspiration
